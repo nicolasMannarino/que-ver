@@ -2,12 +2,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 const CACHE_DIR = path.join(import.meta.dirname, "data", "cache");
 const BASE = "https://api.themoviedb.org/3";
 
 let apiKey = null;
 let requests = 0;
+
+// La key global es la del modo local (una sola persona, una sola key). Cuando
+// la app está publicada cada cuenta trae la suya, y una variable de módulo se
+// vuelve una carrera: dos requests en paralelo se pisan la key y uno termina
+// pegándole a TMDB con la del otro. El contexto async le da a cada request la
+// suya sin que motor.mjs se entere de que esto existe.
+const contexto = new AsyncLocalStorage();
+export const conKey = (k, fn) => (k ? contexto.run({ key: String(k).trim() }, fn) : fn());
+const keyActual = () => contexto.getStore()?.key || apiKey;
 
 export function setKey(k) { apiKey = (k || "").trim(); }
 export function stats() { return { requests }; }
@@ -39,7 +49,8 @@ function writeCache(key, value) {
 
 // Una semana para detalles, un dia para listas que cambian seguido
 export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}) {
-  if (!apiKey) throw new Error("NO_KEY");
+  const laKey = keyActual();
+  if (!laKey) throw new Error("NO_KEY");
   // es-MX y no es-ES: devuelve los títulos latinos, que son los que él usa
   // ("Buenos Muchachos" y no "Uno de los nuestros"). Además hace que los
   // títulos de su lista matcheen exacto en la búsqueda.
@@ -50,8 +61,8 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
 
   const headers = { accept: "application/json" };
   let url = BASE + endpoint + "?" + qs.toString();
-  if (apiKey.startsWith("ey")) headers.authorization = "Bearer " + apiKey; // token v4
-  else url += "&api_key=" + encodeURIComponent(apiKey);                    // key v3
+  if (laKey.startsWith("ey")) headers.authorization = "Bearer " + laKey; // token v4
+  else url += "&api_key=" + encodeURIComponent(laKey);                   // key v3
 
   requests++;
   const res = await fetch(url, { headers });

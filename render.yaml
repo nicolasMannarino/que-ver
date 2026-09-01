@@ -1,0 +1,21 @@
+# Render lee esto y arma el servicio solo. En el panel: New > Blueprint,
+# apuntás a este repo y listo.
+services:
+  - type: web
+    name: que-ver
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.mjs
+    healthCheckPath: /api/sesion
+    envVars:
+      # La base. Pegá acá la connection string de Neon (la que dice "pooled").
+      # Su sola presencia es lo que pone la app en modo publicado, con cuentas.
+      - key: DATABASE_URL
+        sync: false
+      # Firma las sesiones y cifra las API keys. Si cambia, se cae todo el
+      # mundo y ninguna key guardada se puede volver a leer. 32+ caracteres.
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_VERSION
+        value: "22"

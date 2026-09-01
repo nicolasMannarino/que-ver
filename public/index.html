@@ -202,7 +202,30 @@
     <span class="espacio"></span>
     <select id="selUsuario" title="Perfil"></select>
     <button class="chico" id="btnNuevoUsuario" title="Agregar un perfil">+ perfil</button>
+    <button class="chico oculto" id="btnSalir" title="Cerrar sesión">salir</button>
   </header>
+
+  <!-- Entrar. Solo aparece cuando la app está publicada; en tu compu no existe. -->
+  <section class="panel oculto" id="pLogin">
+    <h2 id="tituloLogin">Entrá con tu cuenta</h2>
+    <p class="ayuda" id="ayudaLogin">
+      Tus puntuaciones quedan atadas a tu cuenta: entrás desde el celular, desde otra
+      compu o desde donde sea y ves exactamente lo mismo.
+    </p>
+    <div class="fila" style="margin-bottom:10px">
+      <input type="email" id="inEmail" placeholder="tu mail" autocomplete="username"
+             style="flex:1; min-width:220px">
+    </div>
+    <div class="fila" style="margin-bottom:10px">
+      <input type="password" id="inPass" placeholder="tu contraseña" autocomplete="current-password"
+             style="flex:1; min-width:220px">
+    </div>
+    <div class="fila">
+      <button class="primario" id="btnEntrar">Entrar</button>
+      <button id="btnAlternarLogin" class="chico">No tengo cuenta</button>
+    </div>
+    <div class="error oculto" id="errLogin"></div>
+  </section>
 
   <!-- API key -->
   <section class="panel oculto" id="pKey">
@@ -447,6 +470,12 @@ const conU = (url) => url + (url.includes("?") ? "&" : "?") + "u=" + encodeURICo
 const api = async (url, opts) => {
   const r = await fetch(conU(url), opts);
   const j = await r.json().catch(() => ({ error: "respuesta ilegible" }));
+  // 401 = se venció la sesión mientras usabas la app. Volver a la pantalla de
+  // entrar es más útil que un cartel rojo que no explica nada.
+  if (r.status === 401 && !url.startsWith("/api/sesion")) {
+    sesion.cuenta = null;
+    pintarLogin();
+  }
   if (!r.ok) throw new Error(j.error || ("error " + r.status));
   return j;
 };
@@ -558,6 +587,7 @@ $("#btnGuardarGustos").onclick = async () => {
 /* ---------- Estado general ---------- */
 async function refrescar() {
   estado = await api("/api/estado");
+  if (estado.conLogin) sesion = { conLogin: true, cuenta: estado.cuenta };
   U = estado.usuario;
   localStorage.setItem("queVerUsuario", U);
 
@@ -1212,13 +1242,87 @@ $("#btnKey").onclick = async () => {
   catch (e) { $("#errKey").textContent = e.message; $("#errKey").classList.remove("oculto"); }
 };
 
-pintarChips();
-pintarGeneros();
-cargarAcierto();
-refrescar().then(e => {
+/* ---------- Cuenta ---------- */
+/* En tu compu esto no existe: /api/sesion contesta conLogin:false y la app
+   arranca derecho, como siempre. La pantalla de entrar aparece solo cuando
+   está publicada. */
+let sesion = { conLogin: false, cuenta: null };
+let modoRegistro = false;
+
+function pintarLogin() {
+  const hayQueEntrar = sesion.conLogin && !sesion.cuenta;
+  $("#pLogin").classList.toggle("oculto", !hayQueEntrar);
+  $("#btnSalir").classList.toggle("oculto", !sesion.cuenta);
+  $("#selUsuario").classList.toggle("oculto", hayQueEntrar);
+  $("#btnNuevoUsuario").classList.toggle("oculto", hayQueEntrar);
+  if (hayQueEntrar) {
+    for (const sel of ["#pKey", "#tabs", "#pImport", "#pBuscar"]) $(sel).classList.add("oculto");
+    $("#subtitulo").textContent = "";
+  }
+  $("#tituloLogin").textContent = modoRegistro ? "Creá tu cuenta" : "Entrá con tu cuenta";
+  $("#btnEntrar").textContent  = modoRegistro ? "Crear cuenta" : "Entrar";
+  $("#btnAlternarLogin").textContent = modoRegistro ? "Ya tengo cuenta" : "No tengo cuenta";
+  $("#inPass").autocomplete = modoRegistro ? "new-password" : "current-password";
+  $("#ayudaLogin").textContent = modoRegistro
+    ? "Con mail y contraseña alcanza. Después vas a pegar tu API key de TMDB, que es gratis."
+    : "Tus puntuaciones quedan atadas a tu cuenta: entrás desde el celular, desde otra compu o desde donde sea y ves exactamente lo mismo.";
+}
+
+$("#btnAlternarLogin").onclick = () => {
+  modoRegistro = !modoRegistro;
+  $("#errLogin").classList.add("oculto");
+  pintarLogin();
+};
+
+$("#btnEntrar").onclick = async () => {
+  const btn = $("#btnEntrar");
+  $("#errLogin").classList.add("oculto");
+  btn.disabled = true;
+  try {
+    const ruta = modoRegistro ? "/api/registro" : "/api/entrar";
+    const r = await post(ruta, { email: $("#inEmail").value.trim(), pass: $("#inPass").value });
+    sesion.cuenta = r.cuenta;
+    $("#inPass").value = "";
+    // U viene del localStorage y puede ser el perfil de la sesión anterior en
+    // este mismo navegador. Si no se limpia, la primera consulta pide un perfil
+    // que no es de esta cuenta y el server la rechaza, con razón.
+    U = "";
+    localStorage.removeItem("queVerUsuario");
+    pintarLogin();
+    await entrarALaApp();
+  } catch (e) {
+    $("#errLogin").textContent = e.message;
+    $("#errLogin").classList.remove("oculto");
+  } finally { btn.disabled = false; }
+};
+
+for (const sel of ["#inEmail", "#inPass"]) {
+  $(sel).addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("#btnEntrar").click(); });
+}
+
+$("#btnSalir").onclick = async () => {
+  await post("/api/salir");
+  localStorage.removeItem("queVerUsuario");
+  location.reload();
+};
+
+/* ---------- Arranque ---------- */
+async function entrarALaApp() {
+  const e = await refrescar();
   if (e.trabajo?.activo) vigilarImport();
   else if (e.cantidad > 0) buscar();
-});
+  return e;
+}
+
+(async () => {
+  pintarChips();
+  pintarGeneros();
+  try { sesion = await api("/api/sesion"); } catch { /* server viejo: sin cuentas */ }
+  pintarLogin();
+  if (sesion.conLogin && !sesion.cuenta) return;   // primero entrar
+  cargarAcierto();
+  await entrarALaApp();
+})();
 </script>
 </body>
 </html>

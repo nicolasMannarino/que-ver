@@ -37,6 +37,10 @@ La primera vez Windows puede pedirte permitir Node en el Firewall: aceptá para
 redes privadas.
 
 `node test.mjs` corre los chequeos del motor y los parsers, sin red ni API key.
+`node test-auth.mjs` levanta el server en modo publicado, sobre un `data/` descartable,
+y verifica lo que tiene que ser cierto para dejar esto en internet: que sin cuenta no
+se lee ni se escribe nada, que cambiar `?u=` no te da el perfil de otro, y que la
+contraseña no queda guardada en texto plano en ningún lado.
 `node test-front.mjs` ejecuta el JavaScript de la página contra la API real con un
 DOM de mentira — existe porque una variable que quedó de una versión anterior tiraba
 ReferenceError, cortaba el bucle y dejaba la lista de puntuaciones vacía, y el chequeo
@@ -267,6 +271,56 @@ votos y **otra de una saga que ya puntuaste**.
 
 **5. Puntúa y diversifica**, para que ni un género ni una saga se lleven la lista.
 
+## Publicarlo
+
+Corre igual en dos modos, y lo que decide cuál es **si existe `DATABASE_URL`**:
+
+| | en tu compu | publicado |
+|---|---|---|
+| entrar | directo | mail y contraseña |
+| datos | archivos en `data/` | Postgres |
+| API key de TMDB | una, en `data/config.json` | **la de cada uno**, cifrada contra su cuenta |
+
+En tu compu no cambia nada: sin `DATABASE_URL` no hay login ni pantalla de entrar,
+y seguís abriendo `localhost:5173` como siempre.
+
+### Los pasos
+
+1. **Base**: cuenta en [neon.tech](https://neon.tech), proyecto nuevo, y copiás la
+   connection string (la *pooled*).
+2. **Hosting**: en [render.com](https://render.com), *New → Blueprint*, apuntás a este
+   repo. El `render.yaml` ya dice todo lo demás. Pegás `DATABASE_URL` cuando la pida;
+   `SESSION_SECRET` lo genera Render solo.
+3. **Tu cuenta**: entrás a la URL que te da Render, *No tengo cuenta*, y pegás tu API
+   key de TMDB.
+4. **Tus puntuaciones**, para no empezar de cero:
+
+   ```
+   node subir-mis-datos.mjs --url "<la DATABASE_URL>" --mail vos@ejemplo.com
+   ```
+
+   Agregale `--ensayo` para ver qué haría sin escribir nada.
+
+### Lo que hay que saber del plan gratis
+
+- **Se duerme a los 15 minutos sin visitas** y la primera carga después tarda cerca de
+  un minuto en despertar. Las siguientes van normales.
+- **El cache de TMDB vive en disco efímero**: cada reinicio arranca vacío y se vuelve a
+  llenar solo. Es cache, no datos.
+- **Una sola instancia.** El server carga todo a memoria al arrancar y escribe a
+  Postgres en cada cambio. Eso vale porque no hay un segundo proceso que le pise los
+  datos por atrás. Si algún día hay más de uno, esto hay que cambiarlo.
+
+### Variables de entorno
+
+| | |
+|---|---|
+| `DATABASE_URL` | Postgres. Su sola presencia prende el modo publicado con cuentas. |
+| `SESSION_SECRET` | Firma las sesiones y cifra las API keys. 32+ caracteres. **Si cambia, se cae cada sesión y ninguna key guardada se puede volver a leer.** |
+| `TMDB_API_KEY` | Solo para correrlo local sin cargar la key desde la web. |
+| `PORT` | Por defecto 5173. Render lo pone solo. |
+| `REQUERIR_LOGIN=1` | Fuerza el modo con cuentas sin base, para probarlo en tu compu. |
+
 ## Los archivos que podés tocar
 
 Todo vive en `data/usuarios/<perfil>/`.
@@ -308,6 +362,9 @@ Tu lista, ya resuelta. Es la fuente de verdad: la app la edita sola cuando puntu
 | `datos.mjs` | perfiles, store de puntuaciones, filtros, exportar |
 | `motor.mjs` | perfil de gusto, candidatos, preferencias, scoring, diversidad |
 | `ratings.mjs` | los tres parsers y las variantes de búsqueda |
+| `almacen.mjs` | dónde viven los datos: archivos o Postgres, misma interfaz |
+| `auth.mjs` | cuentas, sesiones firmadas y la API key de cada uno |
+| `subir-mis-datos.mjs` | manda tus puntuaciones de acá a la app publicada |
 | `tmdb.mjs` | cliente de TMDB con cache en disco |
 
 Los títulos se piden en **es-MX** (español latino), que es el que usás vos:

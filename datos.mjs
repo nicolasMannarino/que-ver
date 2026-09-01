@@ -1,19 +1,17 @@
 // Usuarios y puntuaciones. Antes las puntuaciones vivían en un .txt que se
 // importaba una vez; ahora son datos vivos, por usuario, que la app modifica.
 // El .txt pasó a ser solo una forma de sembrar y de exportar.
-import fs from "node:fs";
-import path from "node:path";
+// Las rutas dejaron de ser rutas de disco y pasaron a ser CLAVES del almacén
+// ("usuarios/nico/puntuaciones.json"). En tu compu siguen siendo un archivo con
+// ese nombre; en el hosting son una fila en Postgres. El resto del código no
+// cambia porque la forma de la clave es la misma de siempre.
+import * as A from "./almacen.mjs";
 
-const DIR = import.meta.dirname;
-export const DATA = path.join(DIR, "data");
-const USUARIOS = path.join(DATA, "usuarios");
-const F_USUARIOS = path.join(DATA, "usuarios.json");
+export const DATA = A.DATA;
+const F_USUARIOS = "usuarios.json";
 
-export const leer = (f, def) => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return def; } };
-export const escribir = (f, v) => {
-  fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f, JSON.stringify(v, null, 2));
-};
+export const leer = A.leer;
+export const escribir = A.escribir;
 
 export const PREFS_POR_DEFECTO = {
   _comentario: "Tus preferencias. Son las reglas que las puntuaciones no enseñan solas. Se releen en cada búsqueda: editás y recargás la página.",
@@ -46,47 +44,56 @@ export function slug(nombre) {
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "usuario";
 }
 
-export function listarUsuarios() {
-  const l = leer(F_USUARIOS, null);
-  if (l?.length) return l;
-  return [];
+// Todos los perfiles de todas las cuentas viven en la misma lista, cada uno con
+// el id de su cuenta. Sin cuenta = instalación local de un solo dueño, que es
+// como venía funcionando y como sigue funcionando en tu compu.
+export const todosLosUsuarios = () => leer(F_USUARIOS, null) || [];
+
+export function listarUsuarios(cuenta = null) {
+  const l = todosLosUsuarios();
+  // Nunca devuelvas el perfil de otro: el filtro por cuenta es la línea que
+  // separa los datos de una persona de los de la de al lado.
+  return cuenta ? l.filter(u => u.cuenta === cuenta) : l.filter(u => !u.cuenta);
 }
 
 export function rutasDe(id) {
-  const base = path.join(USUARIOS, id);
+  const base = "usuarios/" + id;
   return {
-    base,
-    puntuaciones: path.join(base, "puntuaciones.json"),
-    estado: path.join(base, "estado.json"),
-    preferencias: path.join(base, "preferencias.json"),
-    mapeo: path.join(base, "mapeo.json"),
+    base: base + "/",
+    puntuaciones: base + "/puntuaciones.json",
+    estado: base + "/estado.json",
+    preferencias: base + "/preferencias.json",
+    mapeo: base + "/mapeo.json",
   };
 }
 
-export function crearUsuario(nombre) {
-  const lista = listarUsuarios();
+export function crearUsuario(nombre, cuenta = null) {
+  // El id es único entre TODOS los perfiles, no solo entre los de esta cuenta:
+  // es la clave del almacén, y dos cuentas con un perfil "papa" cada una se
+  // estarían escribiendo encima.
+  const todos = todosLosUsuarios();
   let id = slug(nombre), n = 2;
-  while (lista.some(u => u.id === id)) id = slug(nombre) + "-" + n++;
+  while (todos.some(u => u.id === id)) id = slug(nombre) + "-" + n++;
   const r = rutasDe(id);
-  fs.mkdirSync(r.base, { recursive: true });
-  if (!fs.existsSync(r.puntuaciones)) escribir(r.puntuaciones, []);
-  if (!fs.existsSync(r.preferencias)) escribir(r.preferencias, PREFS_POR_DEFECTO);
-  if (!fs.existsSync(r.estado)) escribir(r.estado, { descartadas: [], vistas: [], guardadas: [], mostradas: [] });
-  if (!fs.existsSync(r.mapeo)) escribir(r.mapeo, {});
-  lista.push({ id, nombre: (nombre || "").trim() || id });
-  escribir(F_USUARIOS, lista);
+  if (!A.existe(r.puntuaciones)) escribir(r.puntuaciones, []);
+  if (!A.existe(r.preferencias)) escribir(r.preferencias, PREFS_POR_DEFECTO);
+  if (!A.existe(r.estado)) escribir(r.estado, { descartadas: [], vistas: [], guardadas: [], mostradas: [] });
+  if (!A.existe(r.mapeo)) escribir(r.mapeo, {});
+  const entrada = { id, nombre: (nombre || "").trim() || id };
+  if (cuenta) entrada.cuenta = cuenta;
+  todos.push(entrada);
+  escribir(F_USUARIOS, todos);
   return id;
 }
 
 export function borrarUsuario(id) {
-  const lista = listarUsuarios().filter(u => u.id !== id);
-  escribir(F_USUARIOS, lista);
-  try { fs.rmSync(rutasDe(id).base, { recursive: true, force: true }); } catch { /* da igual */ }
+  escribir(F_USUARIOS, todosLosUsuarios().filter(u => u.id !== id));
+  A.borrarPrefijo(rutasDe(id).base);
 }
 
 // Mueve la instalación de un solo usuario al layout nuevo. Corre una vez.
-export function migrar(nombrePorDefecto = "Nico") {
-  if (listarUsuarios().length) return null;
+export function migrar(nombrePorDefecto = "Yo") {
+  if (todosLosUsuarios().length) return null;
   const id = crearUsuario(nombrePorDefecto);
   const r = rutasDe(id);
   for (const [viejo, nuevo] of [
@@ -94,13 +101,11 @@ export function migrar(nombrePorDefecto = "Nico") {
     ["preferencias.json", r.preferencias],
     ["mapeo.json", r.mapeo],
   ]) {
-    const p = path.join(DATA, viejo);
-    if (fs.existsSync(p) && !leer(nuevo, null)?.length) {
-      try { fs.copyFileSync(p, nuevo); } catch { /* seguimos */ }
-    }
+    const contenido = leer(viejo, null);
+    if (contenido && !leer(nuevo, null)?.length) escribir(nuevo, contenido);
   }
   // El perfil viejo trae las puntuaciones ya resueltas: las convierto al store
-  const perfilViejo = leer(path.join(DATA, "perfil.json"), null);
+  const perfilViejo = leer("perfil.json", null);
   if (perfilViejo?.vistas?.length) {
     escribir(r.puntuaciones, perfilViejo.vistas.map(v => ({
       key: v.key, kind: v.kind, tmdbId: v.tmdbId,

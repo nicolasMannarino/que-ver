@@ -7,6 +7,8 @@ import os from "node:os";
 import * as T from "./tmdb.mjs";
 import * as M from "./motor.mjs";
 import * as D from "./datos.mjs";
+import * as A from "./almacen.mjs";
+import * as Auth from "./auth.mjs";
 import { parseAuto, mergeRatings } from "./ratings.mjs";
 
 // Un .env al lado del server, si existe. Node 22 lo lee solo, sin dependencias.
@@ -14,36 +16,54 @@ try { process.loadEnvFile(); } catch { /* no hay .env: se usa el entorno real */
 
 const DIR = import.meta.dirname;
 const DATA = D.DATA;
-const F_CONFIG = path.join(DATA, "config.json");
+const F_CONFIG = "config.json";                 // clave del almacén, no una ruta
 const PUERTO = process.env.PORT || 5173;
 const SEMILLA = ["ratings.csv", "puntuaciones.txt", "ratings.txt", "puntuaciones.csv"];
 
 fs.mkdirSync(path.join(DATA, "cache"), { recursive: true });
 
+// El almacén primero: hasta que no abrió, leer cualquier cosa devuelve vacío.
+await A.abrir();
+
+const CON_LOGIN = Auth.requiereLogin();
+
 // La key sale del entorno primero y del archivo después. El entorno manda
 // porque es la única vía en un hosting: allá no hay disco donde dejar un
 // config.json, y una key en un archivo del repo es una key publicada.
 // data/config.json queda para la comodidad de correrlo en tu compu, y por eso
-// data/ entero está en .gitignore.
+// data/ entero está en .gitignore. Con login, esta key global no se usa: cada
+// cuenta trae la suya.
 let config = D.leer(F_CONFIG, { tmdbKey: "" });
 if (process.env.TMDB_API_KEY) config.tmdbKey = process.env.TMDB_API_KEY.trim();
 if (config.tmdbKey) T.setKey(config.tmdbKey);
 
-D.migrar("Yo");                                // instalación vieja -> layout por usuario
-for (const u of D.listarUsuarios()) D.migrarLentas(u.id);   // marca 🐢 vieja -> motivo "lenta"
-if (!D.listarUsuarios().length) D.crearUsuario("Yo");
+if (!CON_LOGIN) {
+  D.migrar("Yo");                              // instalación vieja -> layout por usuario
+  if (!D.listarUsuarios().length) D.crearUsuario("Yo");
+}
+for (const u of D.todosLosUsuarios()) D.migrarLentas(u.id);  // marca 🐢 vieja -> motivo "lenta"
 
 const perfiles = new Map();                    // userId -> { perfil, vistas }
 const colas = new Map();                       // userId -> { firma, lista, servidas }
-let trabajo = { activo: false, paso: "", hechas: 0, total: 0, error: null };
+// El progreso de la importación, POR PERFIL. Era una sola variable global, y
+// con dos personas importando al mismo tiempo cada una veía la barra de la otra
+// — incluyendo los títulos que no se pudieron resolver, que son de su lista.
+const trabajos = new Map();
+const SIN_TRABAJO = { activo: false, paso: "", hechas: 0, total: 0, error: null };
+const trabajoDe = (id) => trabajos.get(id) || SIN_TRABAJO;
+const marcarTrabajo = (id, t) => { trabajos.set(id, t); return t; };
 
 // --- Usuario de cada request ---
 // Si pide un usuario que no existe, es ERROR, no "te doy el primero": si no,
 // una request con el id mal escrito termina escribiendo en la lista de otro.
 class UsuarioInvalido extends Error {}
-function usuarioDe(url) {
-  const lista = D.listarUsuarios();
+// La lista contra la que se valida es la de TU cuenta. Ese filtro es lo único
+// que separa tus puntuaciones de las del de al lado: sin él, cambiar ?u= en la
+// barra de direcciones alcanzaba para leer y escribir el perfil de cualquiera.
+function usuarioDe(url, cuenta) {
+  const lista = D.listarUsuarios(cuenta?.id || null);
   const pedido = url.searchParams.get("u");
+  if (!lista.length) throw new UsuarioInvalido("Todavía no tenés ningún perfil.");
   if (!pedido) return lista[0].id;                 // primera carga, sin elegir
   const encontrado = lista.find(u => u.id === pedido);
   if (!encontrado) throw new UsuarioInvalido("No existe el perfil «" + pedido + "».");
@@ -94,11 +114,11 @@ async function importar(id, listas) {
   if (!crudas.length) throw new Error("No encontré ninguna puntuación en lo que me pasaste.");
   const mapeo = D.leer(D.rutasDe(id).mapeo, {});
 
-  trabajo = { activo: true, paso: "Buscando cada título en TMDB", hechas: 0, total: crudas.length, error: null };
-  const resueltas = await M.resolver(crudas, (h, t) => { trabajo.hechas = h; trabajo.total = t; }, mapeo);
+  const t1 = marcarTrabajo(id, { activo: true, paso: "Buscando cada título en TMDB", hechas: 0, total: crudas.length, error: null });
+  const resueltas = await M.resolver(crudas, (h, t) => { t1.hechas = h; t1.total = t; }, mapeo);
 
-  trabajo = { activo: true, paso: "Leyendo géneros, keywords y equipo", hechas: 0, total: resueltas.length, error: null };
-  const conFicha = await M.fichas(resueltas, (h, t) => { trabajo.hechas = h; trabajo.total = t; });
+  const t2 = marcarTrabajo(id, { activo: true, paso: "Leyendo géneros, keywords y equipo", hechas: 0, total: resueltas.length, error: null });
+  const conFicha = await M.fichas(resueltas, (h, t) => { t2.hechas = h; t2.total = t; });
   const { limpios, colisiones } = M.quitarColisiones(conFicha);
 
   for (const v of limpios) {
@@ -110,16 +130,16 @@ async function importar(id, listas) {
   }
   invalidar(id);
 
-  trabajo = { activo: true, paso: "Marcando lo que ya viste", hechas: 0, total: 1, error: null };
+  marcarTrabajo(id, { activo: true, paso: "Marcando lo que ya viste", hechas: 0, total: 1, error: null });
   await marcarVistas(id);
 
   const resueltos = new Set(limpios.map(v => v.title));
   const perdidos = crudas.filter(c => !resueltos.has(c.title)).map(c => c.title);
-  trabajo = {
+  marcarTrabajo(id, {
     activo: false, paso: "listo", hechas: limpios.length, total: crudas.length,
     error: null, noResueltas: crudas.length - limpios.length,
     perdidos: perdidos.slice(0, 40), colisiones,
-  };
+  });
   return limpios.length;
 }
 
@@ -401,21 +421,67 @@ function cuerpo(req) {
     req.on("end", () => { try { resolve(JSON.parse(b || "{}")); } catch { resolve({}); } });
   });
 }
+// Sembrar desde un .txt/.csv suelto es una comodidad de correrlo en tu compu:
+// en el hosting no hay disco donde dejarlo, así que ahí simplemente no existe.
 const archivoSemilla = () => {
+  if (A.backend() !== "disco") return null;
   const f = SEMILLA.map(x => path.join(DATA, x)).find(x => fs.existsSync(x));
   return f ? path.basename(f) : null;
 };
 
+// Lo único que se puede tocar sin sesión. La lista es corta y explícita a
+// propósito: si mañana agrego una ruta y me olvido de anotarla, queda cerrada,
+// que es el lado correcto para equivocarse.
+const LIBRES = new Set(["/api/sesion", "/api/registro", "/api/entrar", "/api/salir"]);
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
+  const cuenta = CON_LOGIN ? Auth.leerSesion(req.headers.cookie) : null;
+
+  if (CON_LOGIN && !cuenta && url.pathname.startsWith("/api/") && !LIBRES.has(url.pathname)) {
+    return json(res, 401, { error: "Entrá con tu cuenta." });
+  }
+  // Cada request pega contra TMDB con la key de SU cuenta.
+  return T.conKey(CON_LOGIN ? Auth.keyTmdbDe(cuenta) : null,
+                  () => manejar(req, res, url, cuenta));
+});
+
+async function manejar(req, res, url, cuenta) {
   try {
+    // ---- cuentas ----
+    if (url.pathname === "/api/sesion") {
+      return json(res, 200, { conLogin: CON_LOGIN, cuenta: Auth.publico(cuenta) || null });
+    }
+    if (url.pathname === "/api/registro" && req.method === "POST") {
+      if (!CON_LOGIN) return json(res, 400, { error: "Esta instalación no usa cuentas." });
+      const { email, pass } = await cuerpo(req);
+      const c = Auth.registrar(email, pass);
+      D.crearUsuario("Yo", c.id);                 // toda cuenta arranca con un perfil
+      res.setHeader("set-cookie", Auth.cookieDeSesion(Auth.crearSesion(c.id), req));
+      return json(res, 200, { cuenta: Auth.publico(c) });
+    }
+    if (url.pathname === "/api/entrar" && req.method === "POST") {
+      if (!CON_LOGIN) return json(res, 400, { error: "Esta instalación no usa cuentas." });
+      const { email, pass } = await cuerpo(req);
+      const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "";
+      const c = Auth.entrar(email, pass, ip);
+      res.setHeader("set-cookie", Auth.cookieDeSesion(Auth.crearSesion(c.id), req));
+      return json(res, 200, { cuenta: Auth.publico(c) });
+    }
+    if (url.pathname === "/api/salir" && req.method === "POST") {
+      res.setHeader("set-cookie", Auth.cookieVacia(req));
+      return json(res, 200, { ok: true });
+    }
+
     if (url.pathname === "/api/estado") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const puntuadas = D.cargar(id);
       const e = estadoDe(id);
       return json(res, 200, {
-        tieneKey: !!config.tmdbKey,
-        usuarios: D.listarUsuarios(),
+        tieneKey: CON_LOGIN ? !!Auth.keyTmdbDe(cuenta) : !!config.tmdbKey,
+        conLogin: CON_LOGIN,
+        cuenta: Auth.publico(cuenta) || null,
+        usuarios: D.listarUsuarios(cuenta?.id || null),
         usuario: id,
         cantidad: puntuadas.length,
         pelis: puntuadas.filter(x => x.kind === "movie").length,
@@ -423,22 +489,30 @@ const server = http.createServer(async (req, res) => {
         guardadas: e.guardadas.length,
         descartadas: e.descartadas.length,
         archivoDetectado: archivoSemilla(),
-        trabajo,
+        trabajo: trabajoDe(id),
         requests: T.stats().requests,
       });
     }
 
+    // La key se prueba contra TMDB antes de guardarla: guardar una key rota es
+    // dejar la app muerta sin decir por qué.
     if (url.pathname === "/api/key" && req.method === "POST") {
       const { key } = await cuerpo(req);
-      T.setKey(key);
-      try { await T.tmdb("/configuration", {}, { ttl: 0 }); }
-      catch (e) {
-        T.setKey(config.tmdbKey);
+      const limpia = String(key || "").trim();
+      if (!limpia) return json(res, 400, { error: "Pegá tu API key de TMDB." });
+      try {
+        await T.conKey(limpia, () => T.tmdb("/configuration", {}, { ttl: 0 }));
+      } catch (e) {
         const msg = e.message === "BAD_KEY" ? "La API key no es válida." : "No pude hablar con TMDB: " + e.message;
         return json(res, 400, { error: msg });
       }
-      config.tmdbKey = key;
-      D.escribir(F_CONFIG, config);
+      if (CON_LOGIN) {
+        Auth.cambiarKeyTmdb(cuenta.id, limpia);   // cifrada contra tu cuenta
+      } else {
+        config.tmdbKey = limpia;
+        T.setKey(limpia);
+        D.escribir(F_CONFIG, config);
+      }
       return json(res, 200, { ok: true });
     }
 
@@ -446,22 +520,26 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/usuarios" && req.method === "POST") {
       const { nombre } = await cuerpo(req);
       if (!String(nombre || "").trim()) return json(res, 400, { error: "Poné un nombre." });
-      const id = D.crearUsuario(nombre);
-      return json(res, 200, { id, usuarios: D.listarUsuarios() });
+      const id = D.crearUsuario(nombre, cuenta?.id || null);
+      return json(res, 200, { id, usuarios: D.listarUsuarios(cuenta?.id || null) });
     }
     if (url.pathname === "/api/usuarios/borrar" && req.method === "POST") {
       const { id } = await cuerpo(req);
-      if (D.listarUsuarios().length <= 1) return json(res, 400, { error: "Tiene que quedar al menos un usuario." });
+      const mios = D.listarUsuarios(cuenta?.id || null);
+      // El id llega del cliente: sin este chequeo, un POST a mano borraba el
+      // perfil de otra cuenta con solo adivinar el nombre.
+      if (!mios.some(u => u.id === id)) return json(res, 400, { error: "Ese perfil no es tuyo." });
+      if (mios.length <= 1) return json(res, 400, { error: "Tiene que quedar al menos un usuario." });
       D.borrarUsuario(id);
       invalidar(id);
-      return json(res, 200, { usuarios: D.listarUsuarios() });
+      return json(res, 200, { usuarios: D.listarUsuarios(cuenta?.id || null) });
     }
 
     if (url.pathname === "/api/importar" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const { texto, usarArchivo } = await cuerpo(req);
       const listas = [];
-      if (usarArchivo) {
+      if (usarArchivo && A.backend() === "disco") {
         for (const f of SEMILLA) {
           const p = path.join(DATA, f);
           if (fs.existsSync(p)) listas.push(parseAuto(fs.readFileSync(p, "utf8")));
@@ -470,13 +548,13 @@ const server = http.createServer(async (req, res) => {
       if (texto?.trim()) listas.push(parseAuto(texto));
       if (!listas.length) return json(res, 400, { error: "No me pasaste nada para importar." });
       importar(id, listas).catch(e => {
-        trabajo = { activo: false, paso: "error", hechas: 0, total: 0, error: e.message };
+        marcarTrabajo(id, { activo: false, paso: "error", hechas: 0, total: 0, error: e.message });
       });
       return json(res, 200, { ok: true });
     }
 
     if (url.pathname === "/api/recomendaciones") {
-      const lista = await recomendarEnOrden(usuarioDe(url), {
+      const lista = await recomendarEnOrden(usuarioDe(url, cuenta), {
         preset: url.searchParams.get("preset") || null,
         texto: url.searchParams.get("texto") || "",
         n: parseInt(url.searchParams.get("n"), 10) || 8,
@@ -493,7 +571,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- puntuar, desde la tarjeta o desde la biblioteca ----
     if (url.pathname === "/api/puntuar" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const item = await cuerpo(req);
       if (!item.key || !item.rating) return json(res, 400, { error: "Falta el título o el puntaje." });
       if (item.dejada) item.motivos = [...(item.motivos || []), "la dejé"];
@@ -519,7 +597,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/motivos" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const { key, motivos } = await cuerpo(req);
       const arr = D.cargar(id);
       const i = arr.findIndex(x => x.key === key);
@@ -535,7 +613,7 @@ const server = http.createServer(async (req, res) => {
 
     // Lo que marcó "me la guardo": sin esto el botón no llevaba a ningún lado
     if (url.pathname === "/api/guardadas") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const e = estadoDe(id);
       const lista = (await T.pool(e.guardadas || [], 6, async (key) => {
         const [kind, tid] = key.split(":");
@@ -555,7 +633,7 @@ const server = http.createServer(async (req, res) => {
 
     // ¿Le achunta de verdad? Solo cuenta lo que le recomendó Y después puntuó.
     if (url.pathname === "/api/acierto") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const e = estadoDe(id);
       const todos = e.aciertos || [];
       const altos = todos.filter(x => x.prometido >= 0.7);
@@ -573,7 +651,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/despuntuar" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const { key } = await cuerpo(req);
       D.despuntuar(id, key);
       invalidar(id);
@@ -582,7 +660,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- biblioteca ----
     if (url.pathname === "/api/biblioteca") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const todas = D.cargar(id);
       const lista = D.filtrar(todas, {
         q: url.searchParams.get("q") || "",
@@ -622,11 +700,11 @@ const server = http.createServer(async (req, res) => {
 
     // ---- gustos (preferencias) ----
     if (url.pathname === "/api/gustos" && req.method === "GET") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       return json(res, 200, { gustos: prefsDe(id), porDefecto: D.PREFS_POR_DEFECTO });
     }
     if (url.pathname === "/api/gustos/guardar" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const nuevo = await cuerpo(req);
       const actual = prefsDe(id);
       const num = (v, def) => (Number.isFinite(+v) ? +v : def);
@@ -668,7 +746,7 @@ const server = http.createServer(async (req, res) => {
     // "No la vi" solo la saca de esta cola, no de las recomendaciones: que no la
     // haya visto es justamente motivo para recomendársela.
     if (url.pathname === "/api/para-puntuar") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const p = await perfilDe(id);
       if (!p) return json(res, 200, { lista: [] });
       const e = estadoDe(id);
@@ -709,7 +787,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/saltar" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const { key } = await cuerpo(req);
       const e = estadoDe(id);
       e.saltadas = e.saltadas || [];
@@ -738,7 +816,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- exportar ----
     if (url.pathname === "/api/exportar") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const formato = url.searchParams.get("formato") === "csv" ? "csv" : "txt";
       const arr = D.cargar(id);
       const texto = formato === "csv" ? D.exportarCsv(arr) : D.exportarTxt(arr);
@@ -751,7 +829,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/feedback" && req.method === "POST") {
-      const id = usuarioDe(url);
+      const id = usuarioDe(url, cuenta);
       const { key, accion } = await cuerpo(req);
       const e = estadoDe(id);
       if (accion === "descartar" && !e.descartadas.includes(key)) e.descartadas.push(key);
@@ -771,9 +849,10 @@ const server = http.createServer(async (req, res) => {
     }
     json(res, 404, { error: "no existe" });
   } catch (e) {
-    json(res, e instanceof UsuarioInvalido ? 400 : 500, { error: e.message });
+    const codigo = (e instanceof UsuarioInvalido || e instanceof Auth.ErrorAuth) ? 400 : 500;
+    json(res, codigo, { error: e.message });
   }
-});
+}
 
 function ipDeLaRed() {
   for (const list of Object.values(os.networkInterfaces())) {
@@ -783,11 +862,28 @@ function ipDeLaRed() {
 }
 
 server.listen(PUERTO, "0.0.0.0", () => {
-  const ip = ipDeLaRed();
   console.log("\n  Qué Ver");
-  console.log("    en esta compu:  http://localhost:" + PUERTO);
-  if (ip) console.log("    en el celular:  http://" + ip + ":" + PUERTO + "   (misma red WiFi)");
-  console.log("    usuarios: " + D.listarUsuarios().map(u => u.nombre + " (" + D.cargar(u.id).length + ")").join(", "));
-  if (!config.tmdbKey) console.log("\n    Falta la API key de TMDB. La cargás desde la web.");
+  if (CON_LOGIN) {
+    console.log("    modo:      publicado (con cuentas)");
+    console.log("    guardado:  " + A.backend());
+    console.log("    puerto:    " + PUERTO);
+    console.log("    cuentas:   " + Auth.cantidadDeCuentas());
+  } else {
+    const ip = ipDeLaRed();
+    console.log("    en esta compu:  http://localhost:" + PUERTO);
+    if (ip) console.log("    en el celular:  http://" + ip + ":" + PUERTO + "   (misma red WiFi)");
+    console.log("    usuarios: " + D.listarUsuarios().map(u => u.nombre + " (" + D.cargar(u.id).length + ")").join(", "));
+    if (!config.tmdbKey) console.log("\n    Falta la API key de TMDB. La cargás desde la web.");
+  }
   console.log();
 });
+
+// Render manda SIGTERM antes de apagar: hay que dejar que la cola de escritura
+// termine, o el último cambio que hiciste no llega nunca a la base.
+for (const senal of ["SIGTERM", "SIGINT"]) {
+  process.on(senal, async () => {
+    server.close();
+    await A.cerrar().catch(() => {});
+    process.exit(0);
+  });
+}
