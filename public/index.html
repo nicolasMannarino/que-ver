@@ -476,6 +476,11 @@ const api = async (url, opts) => {
     sesion.cuenta = null;
     pintarLogin();
   }
+  // Sin key no hay nada que mostrar: llevalo al panel que la pide.
+  if (j?.faltaKey) {
+    $("#pKey").classList.remove("oculto");
+    $("#tabs").classList.add("oculto");
+  }
   if (!r.ok) throw new Error(j.error || ("error " + r.status));
   return j;
 };

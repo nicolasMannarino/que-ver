@@ -849,6 +849,15 @@ async function manejar(req, res, url, cuenta) {
     }
     json(res, 404, { error: "no existe" });
   } catch (e) {
+    // "NO_KEY" y "BAD_KEY" salen de tmdb.mjs y son mensajes para mí, no para el
+    // que está del otro lado: sin traducir, entrar sin haber cargado la key daba
+    // un 500 que decía "NO_KEY" y nada más.
+    if (e.message === "NO_KEY") {
+      return json(res, 400, { error: "Todavía no cargaste tu API key de TMDB.", faltaKey: true });
+    }
+    if (e.message === "BAD_KEY") {
+      return json(res, 400, { error: "Tu API key de TMDB dejó de ser válida. Cargá una nueva.", faltaKey: true });
+    }
     const codigo = (e instanceof UsuarioInvalido || e instanceof Auth.ErrorAuth) ? 400 : 500;
     json(res, codigo, { error: e.message });
   }
