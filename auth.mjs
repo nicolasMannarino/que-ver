@@ -301,6 +301,32 @@ export function listarInvitaciones(cuenta) {
 export const hashDeInvitacionCorta = (id) =>
   invitaciones().find(i => i.hash.startsWith(id))?.hash || null;
 
+// Cambiar la contraseña estando adentro. Pide la actual a propósito: sin eso,
+// alguien que te agarre la sesión abierta en una compu ajena te cambia la clave
+// y te deja afuera de tu propia cuenta.
+export function cambiarPass(cuentaId, actual, nueva) {
+  const l = cuentas();
+  const c = l.find(x => x.id === cuentaId);
+  if (!c) throw new ErrorAuth("No existe la cuenta.");
+  if (!iguales(hashear(String(actual || ""), c.sal), c.hash)) {
+    throw new ErrorAuth("La contraseña actual no es correcta.");
+  }
+  const debil = motivoPassDebil(nueva, c.email);
+  if (debil) throw new ErrorAuth(debil);
+  if (iguales(hashear(String(nueva), c.sal), c.hash)) {
+    throw new ErrorAuth("Esa es la misma contraseña que ya tenías.");
+  }
+  // Sal nueva también: reusar la vieja deja pistas de que la clave cambió pero
+  // el material derivado no arrancó de cero.
+  c.sal = crypto.randomBytes(16).toString("hex");
+  c.hash = hashear(String(nueva), c.sal);
+  // Cambiar la contraseña cierra las demás sesiones. Es lo que uno espera
+  // cuando la cambia porque sospecha que alguien más entró.
+  c.v = (c.v || 1) + 1;
+  guardarCuentas(l);
+  return c;
+}
+
 export function cambiarKeyTmdb(cuentaId, key) {
   const l = cuentas();
   const c = l.find(x => x.id === cuentaId);

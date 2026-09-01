@@ -58,8 +58,19 @@ for (const u of aSubir) {
 }
 
 // --- Conectar ---------------------------------------------------------------
+// Mismo criterio que almacen.mjs: sslmode explicito, para verificar el
+// certificado de verdad y que pg no avise en cada corrida.
+function conSslExplicito(url) {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete("channel_binding");
+    u.searchParams.set("sslmode", "verify-full");
+    return u.toString();
+  } catch { return url; }
+}
+
 const { default: pg } = await import("pg");
-const pool = new pg.Pool({ connectionString: URL_BASE, ssl: { rejectUnauthorized: false }, max: 2 });
+const pool = new pg.Pool({ connectionString: conSslExplicito(URL_BASE), max: 2 });
 
 const traer = async (clave, def) => {
   const { rows } = await pool.query("SELECT valor FROM archivos WHERE clave = $1", [clave]);
@@ -145,7 +156,16 @@ try {
   }
 
   console.log(`\n  Listo: ${subidos} perfil(es) subido(s)` + (salteados ? `, ${salteados} salteado(s)` : "") +
-              (ENSAYO ? "  [ENSAYO: no se escribió nada]" : "") + "\n");
+              (ENSAYO ? "  [ENSAYO: no se escribió nada]" : ""));
+  if (subidos && !ENSAYO) {
+    // El server carga todo a memoria cuando arranca. Esto escribio por afuera,
+    // asi que la instancia que esta corriendo no se entero de nada.
+    console.log(
+      "\n  FALTA UN PASO: la app ya corriendo no ve esto todavia.\n" +
+      "  Entra a la app, boton «cuenta» -> «Recargar datos desde la base».\n" +
+      "  (O reinicia el servicio en Render, que hace lo mismo.)");
+  }
+  console.log();
 } finally {
   await pool.end();
 }

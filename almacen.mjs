@@ -72,6 +72,17 @@ export async function abrir() {
   return modo;
 }
 
+// Vuelve a leer todo de la base. Hace falta cuando alguien escribió por afuera
+// —el script de migración, una consulta a mano— porque la memoria de este
+// proceso quedó vieja y no tiene forma de enterarse sola.
+export async function recargar() {
+  if (modo !== "postgres") return 0;
+  await drenar();                       // primero que baje lo que está en vuelo
+  const { rows } = await pool.query("SELECT clave, valor FROM archivos");
+  memoria = new Map(rows.map(r => [r.clave, r.valor]));
+  return memoria.size;
+}
+
 // --- Lectura y escritura ----------------------------------------------------
 
 const rutaDe = (clave) => path.join(DATA, clave);

@@ -219,7 +219,44 @@ try {
           "pero puede volver a entrar con la misma contraseña");
   chequeo((await devuelta("/api/estado")).json?.usuarios?.[0]?.id === perfilDeAna, "y sus datos siguen ahí");
 
-  titulo("13. Lo guardado");
+  titulo("13. Cambiar la contraseña");
+  const NUEVA = "ClaveRecienCambiada9";
+  chequeo((await devuelta("/api/cambiar-pass", POST({ actual: "noEsLaActual1", nueva: NUEVA }))).status === 400,
+          "sin la contraseña actual no la deja cambiar");
+  chequeo((await devuelta("/api/cambiar-pass", POST({ actual: CLAVE_ANA, nueva: "corta" }))).status === 400,
+          "la nueva pasa por la misma vara que al registrarse");
+  chequeo((await devuelta("/api/cambiar-pass", POST({ actual: CLAVE_ANA, nueva: CLAVE_ANA }))).status === 400,
+          "no deja poner la misma que ya tenía");
+
+  const otroDispositivo = navegador();
+  await otroDispositivo("/api/entrar", POST({ email: "ana@ejemplo.com", pass: CLAVE_ANA }));
+  const cookieDelOtro = otroDispositivo.cookieActual();
+
+  chequeo((await devuelta("/api/cambiar-pass", POST({ actual: CLAVE_ANA, nueva: NUEVA }))).status === 200,
+          "con la actual bien, la cambia");
+  chequeo((await devuelta("/api/estado")).status === 200,
+          "y el que la cambió NO se queda afuera él mismo");
+  chequeo(await conCookie(cookieDelOtro) === 401,
+          "pero las sesiones de los otros dispositivos se cierran");
+
+  const conLaVieja = navegador();
+  chequeo((await conLaVieja("/api/entrar", POST({ email: "ana@ejemplo.com", pass: CLAVE_ANA }))).status === 400,
+          "la contraseña vieja ya no entra");
+  const conLaNueva = navegador();
+  chequeo((await conLaNueva("/api/entrar", POST({ email: "ana@ejemplo.com", pass: NUEVA }))).status === 200,
+          "la nueva sí");
+  chequeo((await conLaNueva("/api/estado")).json?.usuarios?.[0]?.id === perfilDeAna,
+          "y sus datos siguen intactos");
+
+  const cuentasTrasCambio = JSON.parse(fs.readFileSync(path.join(CAJA, "data", "cuentas.json"), "utf8"));
+  chequeo(!JSON.stringify(cuentasTrasCambio).includes(NUEVA),
+          "la contraseña nueva tampoco queda en texto plano");
+
+  titulo("14. Recargar la base");
+  chequeo((await beto("/api/recargar", POST({}))).status === 400, "Beto NO puede forzar una recarga");
+  chequeo((await conLaNueva("/api/recargar", POST({}))).status === 200, "la dueña sí");
+
+  titulo("15. Lo guardado");
   const cuentas = JSON.parse(fs.readFileSync(path.join(CAJA, "data", "cuentas.json"), "utf8"));
   chequeo(!JSON.stringify(cuentas).includes(CLAVE_ANA) && !JSON.stringify(cuentas).includes(CLAVE_BETO),
           "ninguna contraseña queda guardada en texto plano");

@@ -248,7 +248,7 @@
     <span class="espacio"></span>
     <select id="selUsuario" title="Perfil"></select>
     <button class="chico" id="btnNuevoUsuario" title="Agregar un perfil">+ perfil</button>
-    <button class="chico oculto" id="btnInvitar" title="Generar codigos de invitacion">invitaciones</button>
+    <button class="chico oculto" id="btnCuenta" title="Tu cuenta">cuenta</button>
     <button class="chico oculto" id="btnSalir" title="Cerrar sesion">salir</button>
   </header>
 
@@ -317,36 +317,67 @@
     <div class="error oculto" id="errKey"></div>
   </section>
 
-  <!-- Invitaciones. Solo lo ve el duenio de la app. -->
-  <section class="panel oculto" id="pInvitaciones">
-    <h2>Invitaciones</h2>
-    <p class="ayuda">
-      Sin un codigo de estos, nadie puede crearse una cuenta. Genera uno, pasaselo
-      a quien quieras, y cuando lo use se queda sin efecto.
-    </p>
-    <div class="fila" style="margin-bottom:12px">
-      <input type="text" id="inEtiquetaInv" placeholder="para quien es (ej: Papa)" style="flex:1; min-width:160px">
-      <label class="meta" style="color:var(--txt2); font-size:13px">usos
-        <input type="number" id="inUsosInv" value="1" min="1" max="20" style="width:64px; margin-left:6px">
-      </label>
-      <label class="meta" style="color:var(--txt2); font-size:13px">dias
-        <input type="number" id="inDiasInv" value="14" min="1" max="365" style="width:70px; margin-left:6px">
-      </label>
-      <button class="primario" id="btnNuevaInvitacion">Generar</button>
-    </div>
-    <div class="invita oculto" id="codigoNuevo" style="border-color:var(--acento)">
-      <div class="arriba">
-        <span class="cod" id="elCodigo"></span>
-        <button class="chico" id="btnCopiarCodigo">copiar</button>
+  <!-- Tu cuenta: contrasena, sesiones y (si sos el duenio) invitaciones. -->
+  <section class="panel oculto" id="pCuenta">
+    <h2>Tu cuenta</h2>
+    <p class="ayuda" id="mailDeLaCuenta"></p>
+
+    <h3 style="font-size:14px; margin:18px 0 6px">Cambiar la contraseña</h3>
+    <form id="formPass">
+      <div class="fila" style="margin-bottom:10px">
+        <input type="password" id="inPassActual" placeholder="tu contraseña de ahora"
+               autocomplete="current-password" style="flex:1; min-width:200px">
+        <input type="password" id="inPassNueva" placeholder="la nueva"
+               autocomplete="new-password" style="flex:1; min-width:200px">
+        <input type="password" id="inPassNueva2" placeholder="la nueva otra vez"
+               autocomplete="new-password" style="flex:1; min-width:200px">
+        <button class="primario" type="submit" id="btnCambiarPass">Cambiar</button>
       </div>
-      <div class="meta">Copialo ahora: es la unica vez que se muestra. Despues queda guardado cifrado y no hay forma de volver a verlo.</div>
-    </div>
-    <div id="listaInvitaciones" style="margin-top:12px"></div>
-    <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--linea)">
-      <button class="chico" id="btnSalirDeTodos">Cerrar sesion en todos los dispositivos</button>
+      <p class="ayuda" style="margin:0">
+        Al cambiarla se cierran las sesiones de los demás dispositivos. Acá seguís adentro.
+      </p>
+      <div class="error oculto" id="errPass" style="margin-top:10px"></div>
+      <div class="pista bien oculto" id="okPass" style="margin-top:10px">Listo, contraseña cambiada.</div>
+    </form>
+
+    <h3 style="font-size:14px; margin:22px 0 6px">Sesiones</h3>
+    <button class="chico" id="btnSalirDeTodos">Cerrar sesión en todos los dispositivos</button>
+    <p class="ayuda" style="margin:8px 0 0">
+      Por si perdiste el celular o entraste en una compu ajena. Te cierra la sesión
+      acá también, y tenés que volver a entrar.
+    </p>
+
+    <div class="oculto" id="seccionInvitaciones">
+      <h3 style="font-size:14px; margin:22px 0 6px">Invitaciones</h3>
+      <p class="ayuda">
+        Sin un código de estos, nadie puede crearse una cuenta. Generá uno, pasáselo
+        a quien quieras, y cuando lo use se queda sin efecto.
+      </p>
+      <div class="fila" style="margin-bottom:12px">
+        <input type="text" id="inEtiquetaInv" placeholder="para quién es (ej: Papá)" style="flex:1; min-width:160px">
+        <label style="color:var(--txt2); font-size:13px">usos
+          <input type="number" id="inUsosInv" value="1" min="1" max="20" style="width:64px; margin-left:6px">
+        </label>
+        <label style="color:var(--txt2); font-size:13px">días
+          <input type="number" id="inDiasInv" value="14" min="1" max="365" style="width:70px; margin-left:6px">
+        </label>
+        <button class="primario" id="btnNuevaInvitacion">Generar</button>
+      </div>
+      <div class="invita oculto" id="codigoNuevo" style="border-color:var(--acento)">
+        <div class="arriba">
+          <span class="cod" id="elCodigo"></span>
+          <button class="chico" id="btnCopiarCodigo">copiar</button>
+        </div>
+        <div class="meta">Copialo ahora: es la única vez que se muestra. Después queda solo su hash y no hay forma de recuperarlo.</div>
+      </div>
+      <div id="listaInvitaciones" style="margin-top:12px"></div>
+
+      <h3 style="font-size:14px; margin:22px 0 6px">Mantenimiento</h3>
+      <button class="chico" id="btnRecargar">Recargar datos desde la base</button>
       <p class="ayuda" style="margin:8px 0 0">
-        Por si perdiste el celular o entraste en una compu ajena. Te cierra la sesion
-        aca tambien, y tenes que volver a entrar.
+        El server carga todo a memoria cuando arranca. Si algo se escribió por afuera
+        —el script que sube tus puntuaciones, por ejemplo— esto lo hace releer sin
+        tener que redeployar.
       </p>
     </div>
   </section>
@@ -1418,9 +1449,9 @@ function pintarLogin() {
   $("#pLogin").classList.toggle("oculto", !hayQueEntrar);
   document.querySelector("header").classList.toggle("oculto", hayQueEntrar);
   $("#btnSalir").classList.toggle("oculto", !sesion.cuenta);
-  $("#btnInvitar").classList.toggle("oculto", !sesion.cuenta || !sesion.cuenta.admin);
+  $("#btnCuenta").classList.toggle("oculto", !sesion.cuenta);
   if (hayQueEntrar) {
-    for (const sel of ["#pKey", "#tabs", "#pImport", "#pBuscar", "#pInvitaciones"]) {
+    for (const sel of ["#pKey", "#tabs", "#pImport", "#pBuscar", "#pCuenta"]) {
       $(sel).classList.add("oculto");
     }
     $("#subtitulo").textContent = "";
@@ -1576,13 +1607,61 @@ function pintarInvitaciones(lista) {
   }
 }
 
-$("#btnInvitar").onclick = async () => {
-  const panel = $("#pInvitaciones");
+$("#btnCuenta").onclick = async () => {
+  const panel = $("#pCuenta");
   const abriendo = panel.classList.contains("oculto");
   panel.classList.toggle("oculto", !abriendo);
-  if (abriendo) {
+  if (!abriendo) return;
+  $("#mailDeLaCuenta").textContent = "Estás entrando como " + (sesion.cuenta.email || "") + ".";
+  /* Las invitaciones son solo del dueño: el server igual las niega, esto es
+     para no mostrar una sección que no va a funcionar. */
+  $("#seccionInvitaciones").classList.toggle("oculto", !sesion.cuenta.admin);
+  if (sesion.cuenta.admin) {
     const r = await api("/api/invitaciones");
     pintarInvitaciones(r.lista);
+  }
+};
+
+/* ---------- Cambiar la contraseña ---------- */
+$("#formPass").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const err = $("#errPass"), ok = $("#okPass"), btn = $("#btnCambiarPass");
+  err.classList.add("oculto"); ok.classList.add("oculto");
+
+  const actual = $("#inPassActual").value;
+  const nueva = $("#inPassNueva").value;
+  const fallar = (m) => { err.textContent = m; err.classList.remove("oculto"); };
+
+  if (nueva !== $("#inPassNueva2").value) return fallar("Las dos nuevas no coinciden.");
+  const motivo = motivoPassDebil(nueva, sesion.cuenta.email);
+  if (motivo) return fallar(motivo);
+
+  btn.disabled = true;
+  try {
+    await post("/api/cambiar-pass", { actual, nueva });
+    for (const c of ["#inPassActual", "#inPassNueva", "#inPassNueva2"]) $(c).value = "";
+    ok.classList.remove("oculto");
+  } catch (e) { fallar(e.message); }
+  finally { btn.disabled = false; }
+};
+
+/* ---------- Releer la base ---------- */
+$("#btnRecargar").onclick = async () => {
+  const btn = $("#btnRecargar");
+  btn.disabled = true;
+  const antes = btn.textContent;
+  btn.textContent = "recargando...";
+  try {
+    const r = await post("/api/recargar");
+    btn.textContent = "listo: " + r.claves + " claves";
+    U = "";
+    localStorage.removeItem("queVerUsuario");
+    await entrarALaApp();
+    setTimeout(() => { btn.textContent = antes; btn.disabled = false; }, 2000);
+  } catch (e) {
+    alert(e.message);
+    btn.textContent = antes;
+    btn.disabled = false;
   }
 };
 

@@ -486,6 +486,24 @@ async function manejar(req, res, url, cuenta) {
       return json(res, 200, { ok: true });
     }
 
+    if (url.pathname === "/api/cambiar-pass" && req.method === "POST") {
+      const { actual, nueva } = await cuerpo(req);
+      const c = Auth.cambiarPass(cuenta.id, actual, nueva);
+      // Cambiar la clave cierra las otras sesiones, así que a ESTA hay que
+      // renovarla o el que la cambió se queda afuera él mismo.
+      res.setHeader("set-cookie", Auth.cookieDeSesion(Auth.crearSesion(c.id), req));
+      return json(res, 200, { ok: true });
+    }
+
+    // Vuelve a leer la base. Hace falta después de escribir por afuera (el
+    // script de migración): la memoria de este proceso quedó vieja.
+    if (url.pathname === "/api/recargar" && req.method === "POST") {
+      if (!Auth.esAdmin(cuenta)) return json(res, 400, { error: "Solo el dueño puede recargar." });
+      const n = await A.recargar();
+      perfiles.clear(); colas.clear();          // los perfiles derivados también
+      return json(res, 200, { ok: true, claves: n, usuarios: D.listarUsuarios(cuenta?.id || null) });
+    }
+
     // ---- invitaciones (solo el dueño) ----
     if (url.pathname === "/api/invitaciones" && req.method === "GET") {
       return json(res, 200, { admin: Auth.esAdmin(cuenta), lista: Auth.listarInvitaciones(cuenta) });
