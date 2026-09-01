@@ -46,6 +46,7 @@
   button.primario:hover:not(:disabled) { background: #ffc76e; }
   button.chico { padding: 6px 10px; font-size: 13px; }
 
+  .soloCelu { display: none; }
   .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--linea); }
   .tab {
     background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
@@ -131,9 +132,16 @@
   .conf.media { background: #2e2a14; border-color: #6b5f2f; color: #d8c87f; }
   .acciones { display: flex; gap: 1px; margin-top: auto; border-top: 1px solid var(--linea); background: var(--linea); }
   .acciones button { flex: 1; border: none; border-radius: 0; background: var(--panel); font-size: 12.5px; padding: 11px 6px; color: var(--txt2); }
-  .acciones button:hover { background: var(--panel2); color: var(--txt); }
-  .acciones button.vi:hover { color: var(--ok); }
-  .acciones button.no:hover { color: var(--no); }
+  /* Cada accion con su color, siempre y no solo al pasar el mouse: en un celular
+     no hay hover, asi que los tres botones se veian identicos y habia que leerlos
+     uno por uno para saber cual era cual. */
+  .acciones button.vi { color: var(--ok); }
+  .acciones button.guardar { color: var(--acento); }
+  .acciones button.no { color: #d98b8b; }
+  .acciones button:hover { background: var(--panel2); }
+  .acciones button.vi:hover { background: rgba(74,222,128,.10); }
+  .acciones button.guardar:hover { background: rgba(255,184,77,.10); }
+  .acciones button.no:hover { background: rgba(248,113,113,.10); }
 
   /* Puntuar: la tira del 1 al 10 */
   .puntuar { padding: 11px 13px; border-top: 1px solid var(--linea); background: var(--panel2); }
@@ -224,19 +232,94 @@
   .interruptor input { width: 18px; height: 18px; accent-color: var(--acento); }
   .guardar { position: sticky; bottom: 0; background: var(--bg); padding: 14px 0; border-top: 1px solid var(--linea); display: flex; gap: 12px; align-items: center; }
 
+  /* =====================================================================
+     CELULAR
+     En la compu esto se ve bien; en el telefono era una pagina hecha para
+     mouse: diez botones de 30px en fila para puntuar, veinte chips de filtro
+     abiertos de entrada y las pestanias arriba de todo, lejos del pulgar.
+     Nada de esto toca el escritorio.
+     ===================================================================== */
   @media (max-width: 620px) {
-    .wrap { padding: 14px 12px 50px; }
+    .soloCelu { display: block; }
+    /* Lugar para la barra de abajo, que es fija */
+    .wrap { padding: 14px 12px calc(76px + env(safe-area-inset-bottom)); }
     h1 { font-size: 18px; }
-    .grid { grid-template-columns: 1fr; }
-    .card img { width: 72px; height: 108px; }
-    .tab { padding: 10px 10px; font-size: 14px; }
+
+    /* --- Navegacion abajo, al alcance del pulgar --- */
+    .tabs {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+      margin: 0; gap: 0; background: var(--panel);
+      border-top: 1px solid var(--linea); border-bottom: none;
+      padding-bottom: env(safe-area-inset-bottom);
+      box-shadow: 0 -2px 14px rgba(0,0,0,.35);
+    }
+    .tab {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 8px 2px 7px; font-size: 10.5px; font-weight: 500;
+      border-bottom: none; min-height: 56px; line-height: 1.2;
+    }
+    .tab::before { font-size: 19px; line-height: 1; filter: grayscale(1) opacity(.55); }
+    .tab[data-tab="rec"]::before { content: "🎬"; }
+    .tab[data-tab="bib"]::before { content: "⭐"; }
+    .tab[data-tab="pun"]::before { content: "✍️"; }
+    .tab[data-tab="gus"]::before { content: "⚙️"; }
+    .tab.on { color: var(--acento); }
+    .tab.on::before { filter: none; }
+
+    /* --- Filtros plegados: el boton de buscar es lo que tiene que verse --- */
+    #cajaFiltros.plegado { display: none; }
+    #btnFiltros {
+      width: 100%; min-height: 46px; text-align: left; margin-bottom: 10px;
+      font-weight: 600; display: flex; align-items: center; justify-content: space-between;
+    }
+    #pBuscar .primario { width: 100%; min-height: 48px; font-size: 15px; }
+
+    /* --- Tarjetas: poster mas grande y aire --- */
+    .grid { grid-template-columns: 1fr; gap: 12px; }
+    .card .top { padding: 14px; gap: 12px; }
+    .card img { width: 92px; height: 138px; }
+    .card h3 { font-size: 16.5px; }
+    .card .datos { font-size: 12px; }
+
+    /* --- Los tres botones: dos arriba, el de descartar abajo y entero --- */
+    .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }
+    .acciones button {
+      min-height: 50px; font-size: 14px; font-weight: 600; padding: 12px 8px;
+    }
+    .acciones button.vi { order: 1; }
+    .acciones button.guardar { order: 2; }
+    .acciones button.no { order: 3; grid-column: 1 / -1; font-weight: 500; }
+
+    /* --- Puntuar: grilla de 5x2 en vez de diez botoncitos en fila --- */
+    .notas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+    .notas button { min-width: 0; min-height: 48px; padding: 0; font-size: 16px; }
+    .puntuar { padding: 13px; }
+    .puntuar .tit { font-size: 13px; }
+
+    /* --- Todo lo que se toca, a un tamanio que el dedo acierte --- */
+    .chip { padding: 10px 14px; font-size: 14px; }
+    button.chico { padding: 9px 12px; font-size: 13.5px; }
+    select, input[type=text], input[type=search], input[type=password],
+    input[type=email], input[type=number] { min-height: 44px; font-size: 16px; }
+    .interruptor { padding: 6px 0; }
+
+    /* --- Biblioteca --- */
     .barra-filtros { gap: 6px; }
-    .barra-filtros select, .barra-filtros input { flex: 1 1 40%; font-size: 15px; }
-    .notas button { min-width: 0; padding: 10px 0; }
+    .barra-filtros select, .barra-filtros input { flex: 1 1 40%; }
     .item { flex-wrap: wrap; }
     .item .nom { flex: 1 1 55%; }
-    .item .poster { width: 38px; height: 57px; }
-    .item .bts { width: 100%; justify-content: flex-end; }
+    .item .poster { width: 44px; height: 66px; }
+    .item .bts { width: 100%; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+
+    /* --- La tarjeta de entrar ocupa la pantalla --- */
+    .entrada { min-height: 70vh; }
+    .tarjeta-entrada { padding: 22px 18px 20px; }
+  }
+
+  /* El iPhone hace zoom solo en cualquier input de menos de 16px al tocarlo, y
+     despues la pagina queda corrida. Con 16px no pasa. */
+  @media (max-width: 620px) and (-webkit-min-device-pixel-ratio: 0) {
+    select, textarea, input { font-size: 16px; }
   }
 </style>
 </head>
@@ -422,14 +505,21 @@
     <section class="panel oculto" id="pBuscar">
       <h2>¿Qué tenés ganas de ver?</h2>
       <p class="ayuda">Opcional: podés no decir nada y darle directo.</p>
-      <input type="text" id="inAnimo" style="width:100%" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara...">
-      <div class="chips" id="chips"></div>
-      <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
-      <div class="chips" id="chipsGenero"></div>
-      <div class="fila" style="margin-top:8px; gap:18px">
-        <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
-        <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
-        <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
+      <!-- En el celular todo esto arranca plegado: son veinte controles, y lo que
+           uno quiere ver primero es el boton de buscar. En la compu no cambia. -->
+      <button class="soloCelu" id="btnFiltros" type="button">
+        <span id="txtFiltros">Filtros y ánimo</span><span id="flechaFiltros">▾</span>
+      </button>
+      <div id="cajaFiltros" class="plegado">
+        <input type="text" id="inAnimo" style="width:100%" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara...">
+        <div class="chips" id="chips"></div>
+        <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
+        <div class="chips" id="chipsGenero"></div>
+        <div class="fila" style="margin-top:8px; gap:18px">
+          <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
+          <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
+          <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
+        </div>
       </div>
       <div class="fila">
         <button class="primario" id="btnBuscar">Dame algo para ver</button>
@@ -842,6 +932,7 @@ function pintarGeneros() {
     };
     cont.appendChild(b);
   }
+  marcarFiltrosActivos();
 }
 
 function pintarChips() {
@@ -853,6 +944,7 @@ function pintarChips() {
     b.onclick = () => { preset = (preset === id ? null : id); pintarChips(); };
     $("#chips").appendChild(b);
   }
+  marcarFiltrosActivos();
 }
 
 function tarjeta(p) {
@@ -962,7 +1054,7 @@ function tarjeta(p) {
   acc.append(
     mk("Ya la vi", "vi", () => cajaPuntuar.classList.toggle("oculto")),
     mk("No me interesa", "no", async () => { await post("/api/feedback", { key: p.key, accion: "descartar" }); sacar(); }),
-    mk("Me la guardo", "", async () => {
+    mk("Me la guardo", "guardar", async () => {
       await post("/api/feedback", { key: p.key, accion: "guardar" });
       sacar(); contarGuardadas();
     }),
@@ -1386,6 +1478,21 @@ $("#btnKey").onclick = async () => {
   try { await post("/api/key", { key: $("#inKey").value.trim() }); await refrescar(); }
   catch (e) { $("#errKey").textContent = e.message; $("#errKey").classList.remove("oculto"); }
 };
+
+/* ---------- Filtros plegables (solo celular) ---------- */
+$("#btnFiltros").onclick = () => {
+  const plegado = $("#cajaFiltros").classList.toggle("plegado");
+  const flecha = $("#flechaFiltros");
+  if (flecha) flecha.textContent = plegado ? "▾" : "▴";
+};
+/* Si elegis un genero o un animo, que quede a la vista que hay filtros puestos */
+function marcarFiltrosActivos() {
+  const donde = $("#txtFiltros");
+  if (!donde) return;
+  const n = generosElegidos.size + generosVetados.size
+          + (preset ? 1 : 0) + ($("#inAnimo").value.trim() ? 1 : 0);
+  donde.textContent = n ? "Filtros y ánimo (" + n + ")" : "Filtros y ánimo";
+}
 
 /* ---------- Cuenta ---------- */
 /* En tu compu esto no existe: /api/sesion contesta conLogin:false y la app
