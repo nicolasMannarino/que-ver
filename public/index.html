@@ -1005,6 +1005,16 @@ function tarjeta(p) {
   const filaMeta = document.createElement("div");
   filaMeta.style.cssText = "display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px";
   filaMeta.append(dd, tmdb, conf);
+  /* Las que no estaban en la lista y salieron a buscarse por el filtro se avisan:
+     un filtro que hace aparecer titulos nuevos sin decirlo es un filtro que
+     miente sobre lo que la lista tenia. */
+  if (p.traidaPorFiltro) {
+    const marca = document.createElement("span");
+    marca.className = "conf";
+    marca.textContent = "buscada por el filtro";
+    marca.title = "No estaba en la lista sin filtrar: se buscó especialmente porque las que ya había no alcanzaban.";
+    filaMeta.appendChild(marca);
+  }
 
   const mv = document.createElement("div"); mv.className = "motivo"; mv.textContent = p.motivo;
   meta.append(h3, filaMeta, mv);

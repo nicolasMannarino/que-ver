@@ -177,6 +177,35 @@ try {
   await api.cargarGustos();
   ok(porId.get("gAnio").value !== "", "la pantalla de gustos se llena");
 
+  // --- un filtro filtra, no inventa ---
+  // Tocar el chip "Comedia" cambiaba la firma de la cola, se rearmaba pidiendole
+  // comedias a TMDB desde cero, y salian ocho titulos que no estaban en la lista
+  // anterior. Un filtro que hace APARECER cosas esta diciendo que la lista sin
+  // filtrar no mostraba lo mejor que tenia.
+  const traer = async (extra) => {
+    const q = new URLSearchParams({ texto: "", nueva: "1", u: "nico", ...extra });
+    const r = await fetch(BASE + "/api/recomendaciones?" + q);
+    return (await r.json()).lista || [];
+  };
+  const completa = await traer({ n: "60" });
+  const filtrada = await traer({ n: "8", generos: "35" });   // 35 = Comedia
+  ok(completa.length > 10, `la lista completa trae varias (dio ${completa.length})`);
+
+  const estaban = new Set(completa.map(p => p.key));
+  const deLaLista = filtrada.filter(p => estaban.has(p.key));
+  const sorpresas = filtrada.filter(p => !estaban.has(p.key) && !p.traidaPorFiltro);
+
+  ok(filtrada.every(p => (p.generosIds || []).includes(35)),
+     "todo lo que devuelve el filtro es del genero pedido");
+  ok(sorpresas.length === 0,
+     `ningun titulo aparece de la nada al filtrar (${sorpresas.length} sin avisar)`);
+  ok(deLaLista.length > 0,
+     `el filtro sube lo que ya estaba en la lista (${deLaLista.length} de ${filtrada.length})`);
+
+  // Las que subieron tienen que venir de mas abajo: eso es reordenar, no inventar
+  const posiciones = deLaLista.map(p => completa.findIndex(x => x.key === p.key));
+  ok(posiciones.every(i => i >= 0), "y se pueden ubicar en la lista original");
+
 } catch (e) {
   ok(false, "explotó: " + e.message);
   console.log("\n" + (e.stack || "").split("\n").slice(0, 4).join("\n"));

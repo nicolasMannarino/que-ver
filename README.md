@@ -223,6 +223,20 @@ que la segunda podía traer algo mejor que la primera — y eso no es estar orde
 Se arma una cola de 60 una vez y se sirve por pedazos; cuando se agota, lo nuevo
 entra sólo si no supera lo último servido.
 
+## El filtro filtra, no inventa
+
+Los chips de género son una **vista sobre la misma lista**, no una consulta nueva.
+
+Antes no: el género entraba en la firma de la cola, así que tocar «Comedia»
+rearmaba todo pidiéndole comedias a TMDB desde cero. Medido: de 8 títulos que
+salían al filtrar, **8 no estaban en la lista de antes**. Y si al filtrar aparece
+una comedia al 94% que sin filtro nunca ofreció, lo que eso dice es que la lista
+sin filtrar no estaba mostrando lo mejor que tenía.
+
+Ahora el género saca las que no son y sube las que sí: las 6 comedias que estaban
+en los puestos 9, 12, 14, 19, 30 y 40 pasan a los primeros lugares. Solo si no
+alcanzan sale a buscar más, y esas van al final **con un cartel que lo dice**.
+
 ## Géneros: un clic incluye, dos excluyen
 
 Los chips de género tienen tres estados: neutro → **solo de este género** →

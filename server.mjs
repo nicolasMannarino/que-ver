@@ -219,6 +219,7 @@ async function enriquecer(finalistas) {
     const r = M.rasgos(d, c.kind);
     c.detalle = { d, ...r };
     c.duracion = r.dur; c.anio = r.anio; c.generos = r.generos;
+    c.generosIds = r.generosIds;
     c.episodios = r.episodios; c.temporadas = r.temporadas; c.status = r.status;
     c.imdb = d.imdb_id || null;
     return c;
@@ -228,6 +229,7 @@ async function enriquecer(finalistas) {
 const paraElFront = (c, perfil) => ({
   key: c.key, kind: c.kind, tmdbId: c.tmdbId, titulo: c.titulo,
   anio: c.anio, duracion: c.duracion, generos: c.generos || [],
+  generosIds: c.generosIds || [],
   episodios: c.episodios || null, temporadas: c.temporadas || null, status: c.status || null,
   poster: c.poster ? "https://image.tmdb.org/t/p/w342" + c.poster : null,
   resumen: c.resumen, nota: c.nota, votos: c.votos,
@@ -365,7 +367,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
 // así que la segunda podía traer algo mejor que la primera: eso no es estar
 // ordenado. Ahora se arma una cola larga una vez y se sirve por pedazos.
 async function recomendarEnOrden(id, opciones) {
-  const { n = 8, nueva = false, ...filtros } = opciones;
+  const { n = 8, nueva = false, generos = null, excluir = null, ...base } = opciones;
   // Arrancar una búsqueda nueva limpia "lo ya mostrado". Antes se acumulaba para
   // siempre: a las 63 el pozo se secaba, y algo que le había interesado y no
   // marcó desaparecía sin manera de volver a encontrarlo.
@@ -375,31 +377,75 @@ async function recomendarEnOrden(id, opciones) {
     guardarEstado(id, e);
     colas.delete(id);
   }
-  const firma = JSON.stringify(filtros);
+
+  // Los géneros NO entran en la firma de la cola, y ahí está el arreglo.
+  //
+  // Antes sí entraban: tocar el chip "Comedia" cambiaba la firma, se rearmaba la
+  // cola pidiéndole comedias a TMDB desde cero, y salían ocho títulos que no
+  // estaban en la lista anterior. Filtrar hacía APARECER películas de la nada en
+  // vez de sacar las que no correspondían, que es lo único que un filtro puede
+  // hacer sin volverse mentiroso: si al filtrar por comedia aparece una comedia
+  // al 94% que sin filtro nunca ofreció, entonces la lista sin filtrar no estaba
+  // mostrando lo mejor que tenía.
+  //
+  // Ahora el género es una VISTA sobre la misma cola: saca las que no son del
+  // género y reordena, sin inventar nada.
+  const firma = JSON.stringify(base);
   let cola = colas.get(id);
 
   if (!cola || cola.firma !== firma) {
     // diversificar() rellena el final sin respetar el orden, así que reordeno:
     // la cola tiene que bajar siempre, tanda tras tanda.
-    const lista = (await recomendar(id, { ...filtros, n: 60 }))
+    const lista = (await recomendar(id, { ...base, n: 60 }))
       .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
-    cola = { firma, lista, servidas: 0 };
+    cola = { firma, lista, servidas: new Set(), vista: null };
     colas.set(id, cola);
   }
-  const tanda = cola.lista.slice(cola.servidas, cola.servidas + n);
-  cola.servidas += tanda.length;
 
-  // Si se vació la cola, busco más y sigo abajo de lo último servido
-  if (tanda.length < n) {
-    const mas = await recomendar(id, { ...filtros, n: 60 });
-    const nuevas = mas.filter(x => !cola.lista.some(y => y.key === x.key));
+  // Cambiar el filtro empieza la vista de cero. Sin esto, un título que ya te
+  // mostré queda marcado como servido y no puede volver a subir — y lo que uno
+  // espera al filtrar por comedia es justamente que la comedia que estaba
+  // séptima pase a estar primera, no que desaparezca por haberla visto.
+  // "Mostrame otras" con el MISMO filtro sí sigue bajando, como antes.
+  const vista = JSON.stringify({ generos: generos || [], excluir: excluir || [] });
+  if (cola.vista !== vista) { cola.servidas = new Set(); cola.vista = vista; }
+
+  const pasaElFiltro = (p) => {
+    const ids = p.generosIds || [];
+    if (excluir?.length && ids.some(g => excluir.includes(g))) return false;
+    if (generos?.length && !ids.some(g => generos.includes(g))) return false;
+    return true;
+  };
+  const disponibles = () => cola.lista.filter(p => pasaElFiltro(p) && !cola.servidas.has(p.key));
+
+  let tanda = disponibles().slice(0, n);
+
+  // Recién si lo que ya tenía no alcanza salgo a buscar de ese género. Van al
+  // final de la cola y marcadas: son las únicas que pueden aparecer sin haber
+  // estado antes, y la tarjeta lo dice, así que no sorprenden.
+  if (tanda.length < n && (generos?.length || excluir?.length)) {
+    const mas = await recomendar(id, { ...base, generos, excluir, n: 60 });
+    const conocidas = new Set(cola.lista.map(x => x.key));
+    cola.lista = cola.lista.concat(
+      mas.filter(x => !conocidas.has(x.key))
+         .map(x => ({ ...x, traidaPorFiltro: true }))
+         .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0)));
+    tanda = disponibles().slice(0, n);
+  }
+
+  // Sin filtro y con la cola agotada: sigo abajo de lo último servido, para que
+  // "mostrame otras" nunca traiga algo mejor que lo que ya ofreció.
+  if (tanda.length < n && !generos?.length && !excluir?.length) {
+    const mas = await recomendar(id, { ...base, n: 60 });
+    const conocidas = new Set(cola.lista.map(x => x.key));
     const tope = tanda.length ? tanda[tanda.length - 1].confianza : Infinity;
     cola.lista = cola.lista.concat(
-      nuevas.filter(x => x.confianza <= tope).sort((a, b) => b.confianza - a.confianza));
-    const extra = cola.lista.slice(cola.servidas, cola.servidas + (n - tanda.length));
-    cola.servidas += extra.length;
-    return tanda.concat(extra);
+      mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope)
+         .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0)));
+    tanda = disponibles().slice(0, n);
   }
+
+  for (const p of tanda) cola.servidas.add(p.key);
   return tanda;
 }
 

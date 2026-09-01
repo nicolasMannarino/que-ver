@@ -136,6 +136,9 @@ export function rasgos(d, kind) {
     episodios: d.number_of_episodes || null,
     temporadas: d.number_of_seasons || null,
     generos: (d.genres || []).map(g => g.name),
+    // Los ids ademas de los nombres: filtrar por genero se hace por id
+    // (los nombres cambian con el idioma) y hace falta del lado del server.
+    generosIds: (d.genres || []).map(g => g.id),
   };
 }
 
