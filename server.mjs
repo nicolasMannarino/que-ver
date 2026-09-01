@@ -912,6 +912,32 @@ async function manejar(req, res, url, cuenta) {
   }
 }
 
+// --- Calentar los perfiles al arrancar --------------------------------------
+// Armar un perfil son ~284 pedidos a TMDB: con el cache lleno tarda un segundo,
+// con el cache vacío tarda 37. Y en el hosting el cache vive en disco efímero,
+// así que CADA reinicio arranca sin nada y esos 37 segundos se los comía el
+// primero que entrara, creyendo que la app es lenta.
+//
+// Hacerlo de fondo al arrancar no los hace desaparecer: los corre mientras no
+// hay nadie mirando. Va de a uno y no en paralelo, para no atropellar a TMDB.
+async function calentarPerfiles() {
+  const conPuntuaciones = D.todosLosUsuarios().filter(u => D.cargar(u.id).length);
+  if (!conPuntuaciones.length) return;
+  console.log("    calentando " + conPuntuaciones.length + " perfil(es) de fondo...");
+  for (const u of conPuntuaciones.slice(0, 20)) {
+    const key = u.cuenta ? Auth.keyTmdbDe(Auth.buscarCuenta(u.cuenta)) : config.tmdbKey;
+    if (!key) continue;                        // sin key no hay nada que traer
+    const t0 = Date.now();
+    try {
+      await T.conKey(key, () => perfilDe(u.id));
+      console.log(`    ${u.nombre}: listo en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    } catch (e) {
+      console.error(`    ${u.nombre}: no pude armarlo (${e.message})`);
+    }
+  }
+  console.log("    perfiles calientes.");
+}
+
 function ipDeLaRed() {
   for (const list of Object.values(os.networkInterfaces())) {
     for (const i of list || []) if (i.family === "IPv4" && !i.internal) return i.address;
@@ -926,6 +952,8 @@ server.listen(PUERTO, "0.0.0.0", () => {
     console.log("    guardado:  " + A.backend());
     console.log("    puerto:    " + PUERTO);
     console.log("    cuentas:   " + Auth.cantidadDeCuentas());
+    // Solo publicado: en tu compu el cache sobrevive y no hace falta.
+    calentarPerfiles().catch(e => console.error("    calentar falló:", e.message));
   } else {
     const ip = ipDeLaRed();
     console.log("    en esta compu:  http://localhost:" + PUERTO);
