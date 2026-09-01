@@ -423,8 +423,19 @@ async function recomendarEnOrden(id, opciones) {
   // Recién si lo que ya tenía no alcanza salgo a buscar de ese género. Van al
   // final de la cola y marcadas: son las únicas que pueden aparecer sin haber
   // estado antes, y la tarjeta lo dice, así que no sorprenden.
-  if (tanda.length < n && (generos?.length || excluir?.length)) {
-    const mas = await recomendar(id, { ...base, generos, excluir, n: 60 });
+  // Salir a buscar solo si lo que hay no alcanza para llenar media pantalla.
+  // Antes bastaba con que faltara UNA para disparar la búsqueda, y esa búsqueda
+  // para un género del que casi no tenés nada cuesta ~5 segundos: no vale la pena
+  // hacerte esperar eso por la octava tarjeta cuando ya hay seis buenas. Si querés
+  // más, "mostrame otras" las va a buscar.
+  const MINIMO = Math.min(4, n);
+  if (tanda.length < MINIMO && (generos?.length || excluir?.length)) {
+    // Pido 24 y no 60: para un género del que casi no tenés nada —terror, con una
+    // sola puntuada— juntar 60 candidatos nuevos obliga al motor a barrer cuatro
+    // tandas de páginas del catálogo esquivando las 60 que ya están en la cola, y
+    // eso medía 17 segundos. Con 24 alcanza para llenar la pantalla, y si pedís
+    // más se vuelve a llamar.
+    const mas = await recomendar(id, { ...base, generos, excluir, n: 24 });
     const conocidas = new Set(cola.lista.map(x => x.key));
     cola.lista = cola.lista.concat(
       mas.filter(x => !conocidas.has(x.key))
