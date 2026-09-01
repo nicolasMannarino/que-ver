@@ -433,6 +433,8 @@ const archivoSemilla = () => {
 // propósito: si mañana agrego una ruta y me olvido de anotarla, queda cerrada,
 // que es el lado correcto para equivocarse.
 const LIBRES = new Set(["/api/sesion", "/api/registro", "/api/entrar", "/api/salir"]);
+const ipDe = (req) =>
+  (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "";
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -450,12 +452,18 @@ async function manejar(req, res, url, cuenta) {
   try {
     // ---- cuentas ----
     if (url.pathname === "/api/sesion") {
-      return json(res, 200, { conLogin: CON_LOGIN, cuenta: Auth.publico(cuenta) || null });
+      return json(res, 200, {
+        conLogin: CON_LOGIN,
+        cuenta: Auth.publico(cuenta) || null,
+        // Para que la pantalla de registro sepa si mostrar el campo del código.
+        necesitaCodigo: Auth.cantidadDeCuentas() > 0,
+        largoMinimo: Auth.LARGO_MINIMO,
+      });
     }
     if (url.pathname === "/api/registro" && req.method === "POST") {
       if (!CON_LOGIN) return json(res, 400, { error: "Esta instalación no usa cuentas." });
-      const { email, pass } = await cuerpo(req);
-      const c = Auth.registrar(email, pass);
+      const { email, pass, codigo } = await cuerpo(req);
+      const c = Auth.registrar(email, pass, { codigo, ip: ipDe(req) });
       D.crearUsuario("Yo", c.id);                 // toda cuenta arranca con un perfil
       res.setHeader("set-cookie", Auth.cookieDeSesion(Auth.crearSesion(c.id), req));
       return json(res, 200, { cuenta: Auth.publico(c) });
@@ -463,14 +471,37 @@ async function manejar(req, res, url, cuenta) {
     if (url.pathname === "/api/entrar" && req.method === "POST") {
       if (!CON_LOGIN) return json(res, 400, { error: "Esta instalación no usa cuentas." });
       const { email, pass } = await cuerpo(req);
-      const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "";
-      const c = Auth.entrar(email, pass, ip);
+      const c = Auth.entrar(email, pass, ipDe(req));
       res.setHeader("set-cookie", Auth.cookieDeSesion(Auth.crearSesion(c.id), req));
       return json(res, 200, { cuenta: Auth.publico(c) });
     }
     if (url.pathname === "/api/salir" && req.method === "POST") {
       res.setHeader("set-cookie", Auth.cookieVacia(req));
       return json(res, 200, { ok: true });
+    }
+    // Cierra la sesión de TODOS los dispositivos, incluido este.
+    if (url.pathname === "/api/salir-de-todos" && req.method === "POST") {
+      Auth.cerrarTodasLasSesiones(cuenta.id);
+      res.setHeader("set-cookie", Auth.cookieVacia(req));
+      return json(res, 200, { ok: true });
+    }
+
+    // ---- invitaciones (solo el dueño) ----
+    if (url.pathname === "/api/invitaciones" && req.method === "GET") {
+      return json(res, 200, { admin: Auth.esAdmin(cuenta), lista: Auth.listarInvitaciones(cuenta) });
+    }
+    if (url.pathname === "/api/invitaciones" && req.method === "POST") {
+      const { etiqueta, maxUsos, dias } = await cuerpo(req);
+      const r = Auth.crearInvitacion(cuenta, { etiqueta, maxUsos, dias });
+      // El código en claro viaja UNA vez y no se puede volver a pedir.
+      return json(res, 200, { codigo: r.codigo, invitacion: r.invitacion, lista: Auth.listarInvitaciones(cuenta) });
+    }
+    if (url.pathname === "/api/invitaciones/revocar" && req.method === "POST") {
+      const { id } = await cuerpo(req);
+      const hash = Auth.hashDeInvitacionCorta(String(id || ""));
+      if (!hash) return json(res, 400, { error: "No existe esa invitación." });
+      Auth.revocarInvitacion(cuenta, hash);
+      return json(res, 200, { lista: Auth.listarInvitaciones(cuenta) });
     }
 
     if (url.pathname === "/api/estado") {

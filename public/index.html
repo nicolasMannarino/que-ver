@@ -28,7 +28,8 @@
   .sub { color: var(--txt2); font-size: 13px; }
   .espacio { flex: 1; }
 
-  select, input[type=text], input[type=search], textarea {
+  select, input[type=text], input[type=search], input[type=password],
+  input[type=email], input[type=number], textarea {
     background: var(--panel2); border: 1px solid var(--linea); color: var(--txt);
     border-radius: 9px; padding: 9px 11px; font: inherit; outline: none; max-width: 100%;
   }
@@ -54,6 +55,51 @@
   .tab.on { color: var(--acento); border-bottom-color: var(--acento); }
 
   .panel { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); padding: 18px; margin-bottom: 16px; }
+
+  /* ---- Entrar ---- */
+  /* Pantalla propia y centrada, no un formulario colgado arriba de la app: es
+     lo primero que ve cualquiera que abra la URL. */
+  .entrada { min-height: 78vh; display: flex; align-items: center; justify-content: center; padding: 16px 0; }
+  .tarjeta-entrada {
+    width: 100%; max-width: 400px; background: var(--panel);
+    border: 1px solid var(--linea); border-radius: 16px; padding: 26px 24px 22px;
+  }
+  .marca { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .marca img { width: 30px; height: 30px; }
+  .marca h2 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
+  .campo { margin-bottom: 13px; }
+  .campo label { display: block; font-size: 12px; color: var(--txt2); margin-bottom: 5px; font-weight: 500; }
+  .campo input { width: 100%; padding: 11px 12px; }
+  .conOjo { position: relative; }
+  .conOjo input { padding-right: 44px; }
+  .ojo {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; padding: 6px 9px; font-size: 15px;
+    color: var(--txt2); cursor: pointer; line-height: 1;
+  }
+  .ojo:hover { background: none; color: var(--txt); }
+  .fuerza { height: 4px; border-radius: 3px; background: var(--panel2); margin-top: 7px; overflow: hidden; }
+  .fuerza i { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .18s, background .18s; }
+  .pista { font-size: 12px; color: var(--txt2); margin-top: 5px; min-height: 16px; }
+  .pista.mal { color: var(--no); }
+  .pista.bien { color: var(--ok); }
+  .tarjeta-entrada .primario { width: 100%; padding: 11px; margin-top: 4px; }
+  .cambiar { text-align: center; margin-top: 14px; font-size: 13px; color: var(--txt2); }
+  .cambiar button {
+    background: none; border: none; color: var(--acento); padding: 0 2px;
+    font: inherit; cursor: pointer; text-decoration: underline;
+  }
+  .cambiar button:hover { background: none; }
+  .nota-entrada { font-size: 12px; color: var(--txt2); margin: 0 0 18px; line-height: 1.5; }
+
+  /* ---- Invitaciones ---- */
+  .invita { border: 1px solid var(--linea); border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; background: var(--panel2); }
+  .invita .arriba { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .invita .cod { font-family: ui-monospace, Consolas, monospace; font-size: 15px; letter-spacing: .06em; color: var(--acento); }
+  .invita .meta { font-size: 12px; color: var(--txt2); }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--linea); color: var(--txt2); }
+  .pill.viva { color: var(--ok); border-color: #2c5c3f; }
+  .pill.muerta { color: var(--txt2); }
   h2 { font-size: 15px; margin: 0 0 6px; }
   p.ayuda { color: var(--txt2); font-size: 13px; margin: 0 0 12px; }
   .fila { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -202,30 +248,59 @@
     <span class="espacio"></span>
     <select id="selUsuario" title="Perfil"></select>
     <button class="chico" id="btnNuevoUsuario" title="Agregar un perfil">+ perfil</button>
-    <button class="chico oculto" id="btnSalir" title="Cerrar sesión">salir</button>
+    <button class="chico oculto" id="btnInvitar" title="Generar codigos de invitacion">invitaciones</button>
+    <button class="chico oculto" id="btnSalir" title="Cerrar sesion">salir</button>
   </header>
 
   <!-- Entrar. Solo aparece cuando la app está publicada; en tu compu no existe. -->
-  <section class="panel oculto" id="pLogin">
-    <h2 id="tituloLogin">Entrá con tu cuenta</h2>
-    <p class="ayuda" id="ayudaLogin">
-      Tus puntuaciones quedan atadas a tu cuenta: entrás desde el celular, desde otra
-      compu o desde donde sea y ves exactamente lo mismo.
-    </p>
-    <div class="fila" style="margin-bottom:10px">
-      <input type="email" id="inEmail" placeholder="tu mail" autocomplete="username"
-             style="flex:1; min-width:220px">
+  <div class="entrada oculto" id="pLogin">
+    <div class="tarjeta-entrada">
+      <div class="marca">
+        <img src="/icono.svg" alt="">
+        <h2 id="tituloLogin">Entrar</h2>
+      </div>
+      <p class="nota-entrada" id="ayudaLogin"></p>
+
+      <form id="formLogin" autocomplete="on">
+        <div class="campo">
+          <label for="inEmail">Mail</label>
+          <input type="email" id="inEmail" autocomplete="username"
+                 inputmode="email" placeholder="vos@ejemplo.com" required>
+        </div>
+
+        <div class="campo">
+          <label for="inPass">Contraseña</label>
+          <div class="conOjo">
+            <input type="password" id="inPass" autocomplete="current-password" required>
+            <button type="button" class="ojo" id="ojoPass" title="Ver la contraseña" aria-label="Ver la contraseña">👁</button>
+          </div>
+          <div class="fuerza oculto" id="barraFuerza"><i id="fuerzaFill"></i></div>
+          <div class="pista" id="pistaPass"></div>
+        </div>
+
+        <div class="campo oculto" id="campoPass2">
+          <label for="inPass2">Repetí la contraseña</label>
+          <div class="conOjo">
+            <input type="password" id="inPass2" autocomplete="new-password">
+            <button type="button" class="ojo" id="ojoPass2" title="Ver la contraseña" aria-label="Ver la contraseña">👁</button>
+          </div>
+          <div class="pista" id="pistaPass2"></div>
+        </div>
+
+        <div class="campo oculto" id="campoCodigo">
+          <label for="inCodigo">Código de invitación</label>
+          <input type="text" id="inCodigo" placeholder="ABCD-EFGH-IJKL-MNOP"
+                 autocomplete="off" spellcheck="false" style="text-transform:uppercase">
+          <div class="pista">Sin un código no se puede crear una cuenta acá.</div>
+        </div>
+
+        <button class="primario" id="btnEntrar" type="submit">Entrar</button>
+      </form>
+
+      <div class="error oculto" id="errLogin" style="margin-top:12px"></div>
+      <div class="cambiar" id="cambiar"></div>
     </div>
-    <div class="fila" style="margin-bottom:10px">
-      <input type="password" id="inPass" placeholder="tu contraseña" autocomplete="current-password"
-             style="flex:1; min-width:220px">
-    </div>
-    <div class="fila">
-      <button class="primario" id="btnEntrar">Entrar</button>
-      <button id="btnAlternarLogin" class="chico">No tengo cuenta</button>
-    </div>
-    <div class="error oculto" id="errLogin"></div>
-  </section>
+  </div>
 
   <!-- API key -->
   <section class="panel oculto" id="pKey">
@@ -240,6 +315,40 @@
       <button class="primario" id="btnKey">Guardar</button>
     </div>
     <div class="error oculto" id="errKey"></div>
+  </section>
+
+  <!-- Invitaciones. Solo lo ve el duenio de la app. -->
+  <section class="panel oculto" id="pInvitaciones">
+    <h2>Invitaciones</h2>
+    <p class="ayuda">
+      Sin un codigo de estos, nadie puede crearse una cuenta. Genera uno, pasaselo
+      a quien quieras, y cuando lo use se queda sin efecto.
+    </p>
+    <div class="fila" style="margin-bottom:12px">
+      <input type="text" id="inEtiquetaInv" placeholder="para quien es (ej: Papa)" style="flex:1; min-width:160px">
+      <label class="meta" style="color:var(--txt2); font-size:13px">usos
+        <input type="number" id="inUsosInv" value="1" min="1" max="20" style="width:64px; margin-left:6px">
+      </label>
+      <label class="meta" style="color:var(--txt2); font-size:13px">dias
+        <input type="number" id="inDiasInv" value="14" min="1" max="365" style="width:70px; margin-left:6px">
+      </label>
+      <button class="primario" id="btnNuevaInvitacion">Generar</button>
+    </div>
+    <div class="invita oculto" id="codigoNuevo" style="border-color:var(--acento)">
+      <div class="arriba">
+        <span class="cod" id="elCodigo"></span>
+        <button class="chico" id="btnCopiarCodigo">copiar</button>
+      </div>
+      <div class="meta">Copialo ahora: es la unica vez que se muestra. Despues queda guardado cifrado y no hay forma de volver a verlo.</div>
+    </div>
+    <div id="listaInvitaciones" style="margin-top:12px"></div>
+    <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--linea)">
+      <button class="chico" id="btnSalirDeTodos">Cerrar sesion en todos los dispositivos</button>
+      <p class="ayuda" style="margin:8px 0 0">
+        Por si perdiste el celular o entraste en una compu ajena. Te cierra la sesion
+        aca tambien, y tenes que volver a entrar.
+      </p>
+    </div>
   </section>
 
   <div class="tabs oculto" id="tabs">
@@ -1251,59 +1360,152 @@ $("#btnKey").onclick = async () => {
 /* En tu compu esto no existe: /api/sesion contesta conLogin:false y la app
    arranca derecho, como siempre. La pantalla de entrar aparece solo cuando
    está publicada. */
-let sesion = { conLogin: false, cuenta: null };
+let sesion = { conLogin: false, cuenta: null, necesitaCodigo: false, largoMinimo: 10 };
 let modoRegistro = false;
+
+/* La misma vara que aplica el server, repetida acá para avisarte mientras
+   escribís. El que manda sigue siendo el server: esto es comodidad, no
+   seguridad — un chequeo que vive en el navegador se saltea con F12. */
+function motivoPassDebil(pass, email) {
+  const p = pass || "";
+  const min = sesion.largoMinimo || 10;
+  if (p.length < min) return "Le faltan " + (min - p.length) + " caracteres.";
+  const clases = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter(r => r.test(p)).length;
+  if (clases < 2) return "Mezclá al menos dos: mayúsculas, minúsculas, números o símbolos.";
+  const usuario = (email || "").split("@")[0].toLowerCase();
+  if (usuario.length >= 4 && p.toLowerCase().includes(usuario)) return "No puede contener tu mail.";
+  return null;
+}
+
+function fuerzaDe(p) {
+  let n = 0;
+  if (p.length >= 10) n++;
+  if (p.length >= 14) n++;
+  if (/[a-z]/.test(p) && /[A-Z]/.test(p)) n++;
+  if (/[0-9]/.test(p)) n++;
+  if (/[^a-zA-Z0-9]/.test(p)) n++;
+  return Math.min(4, n);
+}
+
+function pintarFuerza() {
+  if (!modoRegistro) return;
+  const p = $("#inPass").value;
+  const n = p ? fuerzaDe(p) : 0;
+  const colores = ["#f87171", "#f87171", "#ffb84d", "#a3e635", "#4ade80"];
+  const nombres = ["", "débil", "flojita", "aceptable", "buena"];
+  $("#fuerzaFill").style.width = (n * 25) + "%";
+  $("#fuerzaFill").style.background = colores[n];
+  const motivo = p ? motivoPassDebil(p, $("#inEmail").value) : null;
+  const pista = $("#pistaPass");
+  pista.className = "pista" + (p ? (motivo ? " mal" : " bien") : "");
+  pista.textContent = !p
+    ? "Mínimo " + (sesion.largoMinimo || 10) + " caracteres."
+    : (motivo || "Contraseña " + nombres[n] + ".");
+}
+
+function pintarCoinciden() {
+  if (!modoRegistro) return;
+  const a = $("#inPass").value, b = $("#inPass2").value;
+  const pista = $("#pistaPass2");
+  if (!b) { pista.className = "pista"; pista.textContent = ""; return; }
+  const igual = a === b;
+  pista.className = "pista " + (igual ? "bien" : "mal");
+  pista.textContent = igual ? "Coinciden." : "No coinciden.";
+}
 
 function pintarLogin() {
   const hayQueEntrar = sesion.conLogin && !sesion.cuenta;
   $("#pLogin").classList.toggle("oculto", !hayQueEntrar);
+  document.querySelector("header").classList.toggle("oculto", hayQueEntrar);
   $("#btnSalir").classList.toggle("oculto", !sesion.cuenta);
-  $("#selUsuario").classList.toggle("oculto", hayQueEntrar);
-  $("#btnNuevoUsuario").classList.toggle("oculto", hayQueEntrar);
+  $("#btnInvitar").classList.toggle("oculto", !sesion.cuenta || !sesion.cuenta.admin);
   if (hayQueEntrar) {
-    for (const sel of ["#pKey", "#tabs", "#pImport", "#pBuscar"]) $(sel).classList.add("oculto");
+    for (const sel of ["#pKey", "#tabs", "#pImport", "#pBuscar", "#pInvitaciones"]) {
+      $(sel).classList.add("oculto");
+    }
     $("#subtitulo").textContent = "";
   }
-  $("#tituloLogin").textContent = modoRegistro ? "Creá tu cuenta" : "Entrá con tu cuenta";
-  $("#btnEntrar").textContent  = modoRegistro ? "Crear cuenta" : "Entrar";
-  $("#btnAlternarLogin").textContent = modoRegistro ? "Ya tengo cuenta" : "No tengo cuenta";
-  $("#inPass").autocomplete = modoRegistro ? "new-password" : "current-password";
+
+  $("#tituloLogin").textContent = modoRegistro ? "Crear cuenta" : "Entrar";
+  $("#btnEntrar").textContent   = modoRegistro ? "Crear cuenta" : "Entrar";
   $("#ayudaLogin").textContent = modoRegistro
-    ? "Con mail y contraseña alcanza. Después vas a pegar tu API key de TMDB, que es gratis."
-    : "Tus puntuaciones quedan atadas a tu cuenta: entrás desde el celular, desde otra compu o desde donde sea y ves exactamente lo mismo.";
+    ? "Tus puntuaciones quedan atadas a esta cuenta. Después vas a pegar tu API key de TMDB, que es gratis."
+    : "Entrás desde el celular, desde otra compu o desde donde sea, y ves exactamente lo mismo.";
+
+  $("#campoPass2").classList.toggle("oculto", !modoRegistro);
+  $("#barraFuerza").classList.toggle("oculto", !modoRegistro);
+  $("#campoCodigo").classList.toggle("oculto", !modoRegistro || !sesion.necesitaCodigo);
+  $("#inPass").autocomplete = modoRegistro ? "new-password" : "current-password";
+  $("#inPass2").required = modoRegistro;
+  $("#pistaPass").textContent = "";
+  $("#pistaPass").className = "pista";
+  $("#pistaPass2").textContent = "";
+
+  $("#cambiar").innerHTML = modoRegistro
+    ? "Ya tengo cuenta. <button type=\"button\" id=\"btnAlternarLogin\">Entrar</button>"
+    : "¿No tenés cuenta? <button type=\"button\" id=\"btnAlternarLogin\">Crear una</button>";
+  $("#btnAlternarLogin").onclick = () => {
+    modoRegistro = !modoRegistro;
+    $("#errLogin").classList.add("oculto");
+    pintarLogin();
+    $("#inEmail").focus();
+  };
+  if (modoRegistro) pintarFuerza();
 }
 
-$("#btnAlternarLogin").onclick = () => {
-  modoRegistro = !modoRegistro;
-  $("#errLogin").classList.add("oculto");
-  pintarLogin();
-};
+/* Mostrar u ocultar lo que escribís, en los dos campos */
+for (const par of [["#ojoPass", "#inPass"], ["#ojoPass2", "#inPass2"]]) {
+  const ojo = par[0], campo = par[1];
+  $(ojo).onclick = () => {
+    const i = $(campo);
+    i.type = i.type === "password" ? "text" : "password";
+    $(ojo).textContent = i.type === "password" ? "👁" : "🙈";
+    i.focus();
+  };
+}
+$("#inPass").addEventListener("input", () => { pintarFuerza(); pintarCoinciden(); });
+$("#inPass2").addEventListener("input", pintarCoinciden);
+$("#inEmail").addEventListener("input", pintarFuerza);
 
-$("#btnEntrar").onclick = async () => {
+$("#formLogin").onsubmit = async (ev) => {
+  ev.preventDefault();
   const btn = $("#btnEntrar");
-  $("#errLogin").classList.add("oculto");
+  const err = $("#errLogin");
+  err.classList.add("oculto");
+
+  const email = $("#inEmail").value.trim();
+  const pass = $("#inPass").value;
+
+  /* Los dos chequeos que se pueden hacer sin molestar al server */
+  if (modoRegistro) {
+    const motivo = motivoPassDebil(pass, email);
+    if (motivo) { err.textContent = motivo; err.classList.remove("oculto"); return; }
+    if (pass !== $("#inPass2").value) {
+      err.textContent = "Las dos contraseñas no coinciden.";
+      err.classList.remove("oculto");
+      return;
+    }
+  }
+
   btn.disabled = true;
   try {
-    const ruta = modoRegistro ? "/api/registro" : "/api/entrar";
-    const r = await post(ruta, { email: $("#inEmail").value.trim(), pass: $("#inPass").value });
+    const r = await post(modoRegistro ? "/api/registro" : "/api/entrar",
+                         { email, pass, codigo: $("#inCodigo").value.trim() });
     sesion.cuenta = r.cuenta;
-    $("#inPass").value = "";
-    // U viene del localStorage y puede ser el perfil de la sesión anterior en
-    // este mismo navegador. Si no se limpia, la primera consulta pide un perfil
-    // que no es de esta cuenta y el server la rechaza, con razón.
+    $("#inPass").value = ""; $("#inPass2").value = ""; $("#inCodigo").value = "";
+    /* U viene del localStorage y puede ser el perfil de la sesión anterior en
+       este mismo navegador. Si no se limpia, la primera consulta pide un perfil
+       que no es de esta cuenta y el server la rechaza, con razón. */
     U = "";
     localStorage.removeItem("queVerUsuario");
+    modoRegistro = false;
     pintarLogin();
     await entrarALaApp();
   } catch (e) {
-    $("#errLogin").textContent = e.message;
-    $("#errLogin").classList.remove("oculto");
+    err.textContent = e.message;
+    err.classList.remove("oculto");
   } finally { btn.disabled = false; }
 };
-
-for (const sel of ["#inEmail", "#inPass"]) {
-  $(sel).addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("#btnEntrar").click(); });
-}
 
 $("#btnSalir").onclick = async () => {
   await post("/api/salir");
@@ -1311,10 +1513,111 @@ $("#btnSalir").onclick = async () => {
   location.reload();
 };
 
+$("#btnSalirDeTodos").onclick = async () => {
+  if (!confirm("Vas a cerrar la sesión en TODOS los dispositivos, incluido este. ¿Seguimos?")) return;
+  await post("/api/salir-de-todos");
+  localStorage.removeItem("queVerUsuario");
+  location.reload();
+};
+
+/* ---------- Invitaciones (solo el dueño) ---------- */
+function pintarInvitaciones(lista) {
+  const cont = $("#listaInvitaciones");
+  cont.innerHTML = "";
+  if (!lista.length) {
+    const p = document.createElement("p");
+    p.className = "ayuda";
+    p.style.margin = "0";
+    p.textContent = "Todavía no generaste ninguna.";
+    cont.appendChild(p);
+    return;
+  }
+  for (const i of lista) {
+    const vencida = i.vence && Date.now() > Date.parse(i.vence);
+    const estado = i.revocada ? "dada de baja"
+      : i.usos >= i.maxUsos ? "usada"
+      : vencida ? "vencida" : "activa";
+
+    const d = document.createElement("div");
+    d.className = "invita";
+
+    const arriba = document.createElement("div");
+    arriba.className = "arriba";
+    const pill = document.createElement("span");
+    pill.className = "pill " + (estado === "activa" ? "viva" : "muerta");
+    pill.textContent = estado;
+    const nombre = document.createElement("b");
+    nombre.style.fontSize = "13px";
+    nombre.textContent = i.etiqueta || "sin nombre";
+    arriba.appendChild(pill);
+    arriba.appendChild(nombre);
+    d.appendChild(arriba);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = i.usos + " de " + i.maxUsos + " usos" +
+      (i.vence ? " · vence el " + new Date(i.vence).toLocaleDateString("es-AR") : "") +
+      (i.usadaPor.length ? " · la usó " + i.usadaPor.join(", ") : "");
+    d.appendChild(meta);
+
+    if (estado === "activa") {
+      const b = document.createElement("button");
+      b.className = "chico";
+      b.textContent = "dar de baja";
+      b.style.marginTop = "8px";
+      b.onclick = async () => {
+        if (!confirm("¿Dar de baja esta invitación? Quien la tenga no va a poder usarla.")) return;
+        const r = await post("/api/invitaciones/revocar", { id: i.id });
+        pintarInvitaciones(r.lista);
+      };
+      d.appendChild(b);
+    }
+    cont.appendChild(d);
+  }
+}
+
+$("#btnInvitar").onclick = async () => {
+  const panel = $("#pInvitaciones");
+  const abriendo = panel.classList.contains("oculto");
+  panel.classList.toggle("oculto", !abriendo);
+  if (abriendo) {
+    const r = await api("/api/invitaciones");
+    pintarInvitaciones(r.lista);
+  }
+};
+
+$("#btnNuevaInvitacion").onclick = async () => {
+  const btn = $("#btnNuevaInvitacion");
+  btn.disabled = true;
+  try {
+    const r = await post("/api/invitaciones", {
+      etiqueta: $("#inEtiquetaInv").value.trim(),
+      maxUsos: Number($("#inUsosInv").value) || 1,
+      dias: Number($("#inDiasInv").value) || 14,
+    });
+    $("#inEtiquetaInv").value = "";
+    /* El código se muestra UNA sola vez: en la base queda solo su hash y no hay
+       forma de recuperarlo. Por eso va grande y con botón de copiar. */
+    $("#codigoNuevo").classList.remove("oculto");
+    $("#elCodigo").textContent = r.codigo;
+    pintarInvitaciones(r.lista);
+  } catch (e) {
+    alert(e.message);
+  } finally { btn.disabled = false; }
+};
+
+$("#btnCopiarCodigo").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($("#elCodigo").textContent);
+    $("#btnCopiarCodigo").textContent = "copiado";
+    setTimeout(() => { $("#btnCopiarCodigo").textContent = "copiar"; }, 1500);
+  } catch { /* sin permiso de portapapeles: que lo copie a mano */ }
+};
+
 /* ---------- Arranque ---------- */
 async function entrarALaApp() {
   const e = await refrescar();
-  if (e.trabajo?.activo) vigilarImport();
+  if (e.trabajo && e.trabajo.activo) vigilarImport();
   else if (e.cantidad > 0) buscar();
   return e;
 }
@@ -1322,9 +1625,10 @@ async function entrarALaApp() {
 (async () => {
   pintarChips();
   pintarGeneros();
-  try { sesion = await api("/api/sesion"); } catch { /* server viejo: sin cuentas */ }
+  try { sesion = Object.assign(sesion, await api("/api/sesion")); }
+  catch { /* server viejo: sin cuentas */ }
   pintarLogin();
-  if (sesion.conLogin && !sesion.cuenta) return;   // primero entrar
+  if (sesion.conLogin && !sesion.cuenta) { $("#inEmail").focus(); return; }
   cargarAcierto();
   await entrarALaApp();
 })();

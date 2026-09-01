@@ -301,6 +301,25 @@ y seguís abriendo `localhost:5173` como siempre.
 
    Agregale `--ensayo` para ver qué haría sin escribir nada.
 
+### Quién puede entrar
+
+**Nadie que vos no habilites.** La primera cuenta que se crea es la del dueño; a
+partir de ahí, para registrarse hace falta un **código de invitación** que genera
+el dueño desde la app (botón *invitaciones*). Un desconocido que llegue a la URL
+ve la pantalla de entrar y no tiene por dónde seguir.
+
+Los códigos se guardan **hasheados**, igual que las contraseñas: quien se lleve un
+backup de la base no se lleva invitaciones usables. Cada uno tiene tope de usos y
+fecha de vencimiento, y se pueden dar de baja antes.
+
+Las contraseñas van con scrypt y sal propia, mínimo 10 caracteres, y se rechazan
+las que aparecen en toda filtración, las de un solo tipo de caracter y las que
+contienen tu propio mail.
+
+*Cerrar sesión en todos los dispositivos* existe por si perdés el celular: la
+cuenta lleva un número de versión y subirlo de uno deja vieja a toda cookie
+emitida hasta ese momento.
+
 ### Lo que hay que saber del plan gratis
 
 - **Se duerme a los 15 minutos sin visitas** y la primera carga después tarda cerca de
@@ -320,6 +339,8 @@ y seguís abriendo `localhost:5173` como siempre.
 | `TMDB_API_KEY` | Solo para correrlo local sin cargar la key desde la web. |
 | `PORT` | Por defecto 5173. Render lo pone solo. |
 | `REQUERIR_LOGIN=1` | Fuerza el modo con cuentas sin base, para probarlo en tu compu. |
+| `ADMIN_EMAILS` | Quién puede generar invitaciones, separado por comas. Sin esto, el dueño es la primera cuenta que se creó. |
+| `REGISTRO_PERMITIDO` | Mails que pueden registrarse sin código. La escotilla para no quedarte afuera de tu propia app. |
 
 ## Los archivos que podés tocar
 
