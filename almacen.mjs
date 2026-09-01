@@ -28,6 +28,23 @@ export const backend = () => modo;
 
 // --- Arranque ---------------------------------------------------------------
 
+// Neon entrega la cadena terminada en "?sslmode=require&channel_binding=require".
+// node-postgres HOY trata ese "require" como verify-full —verifica el certificado
+// de verdad, y contra Neon anda— pero avisa en cada arranque que en su próxima
+// versión mayor va a pasar a significar lo contrario: cifrar sin verificar. Lo
+// dejamos escrito como verify-full, que es lo que ya está pasando: así no se
+// debilita solo el día que la dependencia suba de major, y de paso no ensucia
+// los logs. channel_binding sale porque pg no lo implementa.
+function conSslExplicito(url) {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete("channel_binding");
+    u.searchParams.set("sslmode",
+      process.env.DATABASE_SSL_SIN_VERIFICAR === "1" ? "no-verify" : "verify-full");
+    return u.toString();
+  } catch { return url; }   // cadena rara: que decida pg
+}
+
 export async function abrir() {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -39,14 +56,7 @@ export async function abrir() {
   // pg se importa acá adentro a propósito: si no hay DATABASE_URL, el proyecto
   // sigue corriendo sin la dependencia instalada.
   const { default: pg } = await import("pg");
-  pool = new pg.Pool({
-    connectionString: url,
-    // Neon y casi todo Postgres administrado exigen TLS, y su cadena no está
-    // en el store de Node. Verificar acá no agrega nada: la conexión ya va
-    // cifrada y el host viene de una variable de entorno nuestra.
-    ssl: { rejectUnauthorized: false },
-    max: 4,
-  });
+  pool = new pg.Pool({ connectionString: conSslExplicito(url), max: 4 });
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS archivos (
