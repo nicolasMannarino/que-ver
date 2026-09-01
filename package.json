@@ -1,0 +1,18 @@
+{
+  "name": "que-ver",
+  "version": "1.0.0",
+  "description": "Recomendador de peliculas y series armado sobre tus propias puntuaciones.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test.mjs",
+    "test:front": "node test-front.mjs",
+    "backtest": "node backtest.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,1224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1013">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icono.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icono.svg">
+<title>Qué Ver</title>
+<style>
+  :root {
+    --bg: #0e1013; --panel: #171a20; --panel2: #1e222a; --linea: #2a2f39;
+    --txt: #e8eaed; --txt2: #9aa2b1; --acento: #ffb84d; --ok: #4ade80; --no: #f87171;
+    --radio: 12px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; flex: none; }
+  .sub { color: var(--txt2); font-size: 13px; }
+  .espacio { flex: 1; }
+
+  select, input[type=text], input[type=search], textarea {
+    background: var(--panel2); border: 1px solid var(--linea); color: var(--txt);
+    border-radius: 9px; padding: 9px 11px; font: inherit; outline: none; max-width: 100%;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--acento); }
+  textarea { width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+
+  button {
+    background: var(--panel2); color: var(--txt); border: 1px solid var(--linea);
+    border-radius: 9px; padding: 9px 14px; font: inherit; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: #3d4450; background: #242933; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primario { background: var(--acento); color: #1a1205; border-color: var(--acento); font-weight: 600; }
+  button.primario:hover:not(:disabled) { background: #ffc76e; }
+  button.chico { padding: 6px 10px; font-size: 13px; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--linea); }
+  .tab {
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 10px 14px; color: var(--txt2); font-weight: 500;
+  }
+  .tab:hover { background: none; color: var(--txt); }
+  .tab.on { color: var(--acento); border-bottom-color: var(--acento); }
+
+  .panel { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); padding: 18px; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 0 0 6px; }
+  p.ayuda { color: var(--txt2); font-size: 13px; margin: 0 0 12px; }
+  .fila { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .chip { padding: 7px 13px; border-radius: 999px; border: 1px solid var(--linea); background: var(--panel2); cursor: pointer; font-size: 13.5px; color: var(--txt2); }
+  .chip.on { background: var(--acento); color: #1a1205; border-color: var(--acento); font-weight: 600; }
+  .chip.no { background: #3a1f1f; color: #f0a0a0; border-color: #7a3a3a; font-weight: 600; text-decoration: line-through; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; display: flex; flex-direction: column; }
+  .card .top { display: flex; gap: 13px; padding: 13px; }
+  .card img { width: 88px; height: 132px; object-fit: cover; border-radius: 8px; background: var(--panel2); flex: none; }
+  .card .meta { min-width: 0; }
+  .card h3 { margin: 0 0 4px; font-size: 15.5px; line-height: 1.3; }
+  .card .datos { color: var(--txt2); font-size: 12.5px; margin-bottom: 8px; }
+  .motivo { background: rgba(255,184,77,.09); border-left: 2px solid var(--acento); padding: 7px 10px; border-radius: 0 6px 6px 0; font-size: 12.5px; color: #f0d5a8; }
+  .avisos { font-size: 11.5px; color: #c9955a; margin-top: 7px; }
+  .avisos::before { content: "▲ "; font-size: 9px; vertical-align: 1px; }
+  .resumen { padding: 0 13px 11px; color: var(--txt2); font-size: 12.5px; cursor: pointer; }
+  .resumen.corta { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .verMas { color: var(--acento); font-size: 12px; padding: 0 13px 11px; cursor: pointer; user-select: none; }
+  .verMas:hover { text-decoration: underline; }
+  .conf {
+    flex: none; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--linea); background: var(--panel2); color: var(--txt2);
+  }
+  .conf.alta { background: #14301f; border-color: #2f6b46; color: #7fd4a8; font-weight: 600; }
+  .conf.media { background: #2e2a14; border-color: #6b5f2f; color: #d8c87f; }
+  .acciones { display: flex; gap: 1px; margin-top: auto; border-top: 1px solid var(--linea); background: var(--linea); }
+  .acciones button { flex: 1; border: none; border-radius: 0; background: var(--panel); font-size: 12.5px; padding: 11px 6px; color: var(--txt2); }
+  .acciones button:hover { background: var(--panel2); color: var(--txt); }
+  .acciones button.vi:hover { color: var(--ok); }
+  .acciones button.no:hover { color: var(--no); }
+
+  /* Puntuar: la tira del 1 al 10 */
+  .puntuar { padding: 11px 13px; border-top: 1px solid var(--linea); background: var(--panel2); }
+  .puntuar .tit { font-size: 12px; color: var(--txt2); margin-bottom: 8px; }
+  .notas { display: flex; gap: 4px; flex-wrap: wrap; }
+  .notas button {
+    flex: 1 1 auto; min-width: 30px; padding: 8px 0; border-radius: 7px;
+    font-size: 13px; font-weight: 600; background: var(--panel); color: var(--txt2);
+  }
+  .notas button:hover { background: var(--acento); color: #1a1205; border-color: var(--acento); }
+  .notas button.on { background: var(--acento); color: #1a1205; border-color: var(--acento); }
+
+  /* Biblioteca */
+  .barra-filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .barra-filtros select, .barra-filtros input { padding: 8px 10px; font-size: 14px; }
+  .lista { border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--linea); background: var(--panel); }
+  .item:last-child { border-bottom: none; }
+  .item .poster { flex: none; width: 44px; height: 66px; object-fit: cover; border-radius: 6px; background: var(--panel2); }
+  .item .nota {
+    flex: none; width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+    font-weight: 700; font-size: 15px; background: var(--acento); color: #1a1205;
+  }
+  .tmdb {
+    flex: none; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--txt2);
+    background: var(--panel2); border: 1px solid var(--linea); border-radius: 7px; padding: 4px 8px;
+  }
+  .tmdb b { color: #7fd4a8; font-weight: 600; font-size: 12.5px; }
+  .tmdb .marca { font-size: 9.5px; letter-spacing: .04em; opacity: .75; }
+  .item .nom { flex: 1; min-width: 0; }
+  .item .nom b { font-weight: 500; font-size: 14.5px; }
+  .item .nom span { color: var(--txt2); font-size: 12.5px; }
+  .item .bts { display: flex; gap: 6px; flex: none; }
+  .motivos { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 5px; }
+  .motivo-chip {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+    background: #3a2a1a; border: 1px solid #7a5a2a; color: #e8b96a;
+  }
+  .motivo-chip:hover { background: #4a3520; }
+  .motivo-chip .x { opacity: .55; margin-left: 4px; }
+  .motivo-add {
+    font-size: 11.5px; padding: 3px 10px; border-radius: 999px;
+    background: var(--panel2); border: 1px solid #4a5260; color: var(--txt2); cursor: pointer;
+  }
+  .motivo-add:hover { border-color: var(--acento); color: var(--acento); }
+  .banda {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: rgba(255,184,77,.10); border: 1px solid #6b552a;
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px;
+  }
+  .banda b { color: var(--acento); }
+  .selEtiqueta {
+    font-size: 12px; padding: 5px 8px; border-radius: 8px; background: var(--panel2);
+    border: 1px solid var(--linea); color: var(--txt2); cursor: pointer; max-width: 130px;
+  }
+  .selEtiqueta:hover { border-color: var(--acento); color: var(--acento); }
+  .item .nom b a { color: inherit; text-decoration: none; }
+  .item .nom b a:hover { color: var(--acento); text-decoration: underline; }
+  .vacio { color: var(--txt2); text-align: center; padding: 40px 20px; }
+  .error { color: var(--no); font-size: 13px; margin-top: 10px; }
+  .oculto { display: none !important; }
+  .barra { height: 6px; background: var(--panel2); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+  .barra div { height: 100%; background: var(--acento); transition: width .25s; }
+  a { color: var(--acento); }
+  code { background: var(--panel2); padding: 2px 6px; border-radius: 5px; font-size: 12.5px; }
+  .pie { color: var(--txt2); font-size: 12px; margin-top: 22px; text-align: center; }
+  .resultado-busq { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 9px; cursor: pointer; }
+  .resultado-busq:hover { background: var(--panel2); }
+  .resultado-busq img { width: 38px; height: 57px; object-fit: cover; border-radius: 5px; background: var(--panel2); flex: none; }
+  .rapidoGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .rapidoCard { background: var(--panel2); border: 1px solid var(--linea); border-radius: 10px; padding: 10px; display: flex; gap: 10px; }
+  .rapidoCard img { width: 52px; height: 78px; object-fit: cover; border-radius: 6px; background: var(--panel); flex: none; }
+  .rapidoCard .d { min-width: 0; flex: 1; }
+  .rapidoCard .t { font-size: 13.5px; font-weight: 500; line-height: 1.25; margin-bottom: 2px; }
+  .rapidoCard .s { font-size: 11.5px; color: var(--txt2); margin-bottom: 7px; }
+  .rapidoCard .notas button { min-width: 24px; padding: 5px 0; font-size: 11.5px; }
+  .rapidoCard .nover { font-size: 11.5px; padding: 4px 8px; margin-top: 6px; }
+  .masAbajo { display: block; width: 100%; margin-top: 16px; padding: 14px; font-size: 15px; font-weight: 600; }
+  /* Pantalla de gustos */
+  .regla { border-bottom: 1px solid var(--linea); padding: 16px 0; }
+  .regla:last-child { border-bottom: none; }
+  .regla h3 { margin: 0 0 4px; font-size: 14.5px; font-weight: 600; }
+  .regla p { margin: 0 0 10px; color: var(--txt2); font-size: 12.5px; }
+  .regla .campos { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .regla input[type=number] { width: 90px; background: var(--panel2); border: 1px solid var(--linea); color: var(--txt); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .regla textarea { min-height: 80px; font-size: 13px; }
+  .interruptor { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14px; }
+  .interruptor input { width: 18px; height: 18px; accent-color: var(--acento); }
+  .guardar { position: sticky; bottom: 0; background: var(--bg); padding: 14px 0; border-top: 1px solid var(--linea); display: flex; gap: 12px; align-items: center; }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 14px 12px 50px; }
+    h1 { font-size: 18px; }
+    .grid { grid-template-columns: 1fr; }
+    .card img { width: 72px; height: 108px; }
+    .tab { padding: 10px 10px; font-size: 14px; }
+    .barra-filtros { gap: 6px; }
+    .barra-filtros select, .barra-filtros input { flex: 1 1 40%; font-size: 15px; }
+    .notas button { min-width: 0; padding: 10px 0; }
+    .item { flex-wrap: wrap; }
+    .item .nom { flex: 1 1 55%; }
+    .item .poster { width: 38px; height: 57px; }
+    .item .bts { width: 100%; justify-content: flex-end; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Qué Ver</h1>
+    <span class="sub" id="subtitulo"></span>
+    <span class="espacio"></span>
+    <select id="selUsuario" title="Perfil"></select>
+    <button class="chico" id="btnNuevoUsuario" title="Agregar un perfil">+ perfil</button>
+  </header>
+
+  <!-- API key -->
+  <section class="panel oculto" id="pKey">
+    <h2>Primero, la API key de TMDB</h2>
+    <p class="ayuda">
+      Gratis, dos minutos: cuenta en <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a>,
+      después <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Settings → API</a>,
+      y pegás acá la <b>API Key (v3 auth)</b>.
+    </p>
+    <div class="fila">
+      <input type="text" id="inKey" placeholder="tu api key" style="flex:1; min-width:220px">
+      <button class="primario" id="btnKey">Guardar</button>
+    </div>
+    <div class="error oculto" id="errKey"></div>
+  </section>
+
+  <div class="tabs oculto" id="tabs">
+    <button class="tab on" data-tab="rec">Recomendar</button>
+    <button class="tab" data-tab="bib">Mis puntuaciones</button>
+    <button class="tab" data-tab="pun">Puntuar</button>
+    <button class="tab" data-tab="gus">Mis gustos</button>
+  </div>
+
+  <!-- ===== Recomendar ===== -->
+  <div id="vistaRec">
+    <div class="banda oculto" id="bandaSemilla"></div>
+    <div class="banda oculto" id="bandaAcierto"></div>
+    <div class="fila oculto" id="filaGuardadas" style="margin-bottom:14px">
+      <button id="btnGuardadas">Mis guardadas</button>
+    </div>
+    <div class="grid oculto" id="listaGuardadas" style="margin-bottom:18px"></div>
+    <section class="panel oculto" id="pImport">
+      <h2>Tus puntuaciones</h2>
+      <p class="ayuda" id="ayudaImport"></p>
+      <div class="fila" style="margin-bottom:10px">
+        <button class="primario oculto" id="btnArchivo">Importar el archivo que detecté</button>
+      </div>
+      <textarea id="txtRatings" placeholder="O pegá acá tu lista. Entiende varios formatos:
+  10 Puntos: El Padrino, Whiplash, Nueve reinas
+  El Padrino 9
+  Interestelar (2014): 7,5
+  ...o el CSV que exporta IMDb"></textarea>
+      <div class="fila" style="margin-top:10px">
+        <button class="primario" id="btnPegado">Importar lo pegado</button>
+        <span class="sub">Después las editás desde la app.</span>
+      </div>
+      <div id="progreso" class="oculto">
+        <div class="barra"><div id="barraFill" style="width:0%"></div></div>
+        <div class="sub" id="progresoTxt"></div>
+      </div>
+      <div class="error oculto" id="errImport"></div>
+    </section>
+
+    <section class="panel oculto" id="pBuscar">
+      <h2>¿Qué tenés ganas de ver?</h2>
+      <p class="ayuda">Opcional: podés no decir nada y darle directo.</p>
+      <input type="text" id="inAnimo" style="width:100%" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara...">
+      <div class="chips" id="chips"></div>
+      <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
+      <div class="chips" id="chipsGenero"></div>
+      <div class="fila" style="margin-top:8px; gap:18px">
+        <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
+        <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
+        <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
+      </div>
+      <div class="fila">
+        <button class="primario" id="btnBuscar">Dame algo para ver</button>
+        <span class="sub" id="estadoBusqueda"></span>
+      </div>
+      <div class="error oculto" id="errBuscar"></div>
+    </section>
+
+    <div class="grid" id="resultados"></div>
+    <div class="vacio oculto" id="vacioRec"></div>
+    <button class="masAbajo oculto" id="btnMas">Mostrame otras ↓</button>
+  </div>
+
+  <!-- ===== Biblioteca ===== -->
+  <div id="vistaBib" class="oculto">
+    <section class="panel">
+      <div class="fila" style="margin-bottom:12px">
+        <button class="primario" id="btnAgregar">+ Agregar una en particular</button>
+        <span class="espacio"></span>
+        <button class="chico" id="btnTxt">Descargar .txt</button>
+        <button class="chico" id="btnCsv">Descargar .csv</button>
+      </div>
+
+      <div id="cajaAgregar" class="oculto" style="margin-bottom:14px">
+        <input type="search" id="inBuscarTitulo" style="width:100%" placeholder="Buscá el título y elegilo de la lista...">
+        <div id="resBusqueda" style="margin-top:8px"></div>
+      </div>
+
+      <div class="barra-filtros">
+        <input type="search" id="fTexto" placeholder="Buscar en tu lista..." style="flex:2; min-width:150px">
+        <select id="fTipo">
+          <option value="todo">Todo</option>
+          <option value="movie">Películas</option>
+          <option value="tv">Series</option>
+        </select>
+        <select id="fMin"></select>
+        <select id="fMax"></select>
+        <select id="fOrden">
+          <option value="puntaje">Por puntaje</option>
+          <option value="titulo">Por título</option>
+          <option value="anio">Por año</option>
+          <option value="reciente">Más reciente</option>
+        </select>
+      </div>
+      <div class="chips" id="chipsMotivo" style="margin:0 0 10px"></div>
+      <div class="sub" id="resumenBib"></div>
+    </section>
+
+    <div class="lista" id="listaBib"></div>
+    <div class="vacio oculto" id="vacioBib"></div>
+  </div>
+
+  <!-- ===== Puntuar ===== -->
+  <div id="vistaPun" class="oculto">
+    <section class="panel">
+      <h2>Puntuá lo que ya viste</h2>
+      <p class="ayuda">
+        Las más vistas que todavía no están en tu lista, de más a menos vista.
+        Ponele nota a las que viste y <b>saltá</b> las que no.
+        Saltarlas no las saca de las recomendaciones — al revés, no haberlas visto
+        es justamente motivo para recomendártelas.
+      </p>
+      <div class="fila">
+        <select id="rapidoTipo">
+          <option value="movie">Películas</option>
+          <option value="tv">Series</option>
+        </select>
+        <button id="btnRapidoMas">Traer otras</button>
+        <span class="sub" id="rapidoEstado"></span>
+      </div>
+    </section>
+    <div class="rapidoGrid" id="rapidoLista"></div>
+  </div>
+
+  <!-- ===== Mis gustos ===== -->
+  <div id="vistaGus" class="oculto">
+    <section class="panel">
+      <h2>Mis gustos</h2>
+      <p class="ayuda">
+        Esto es lo que el motor aplica además de tus puntuaciones. Tus notas le enseñan
+        <b>qué</b> te gusta; estas reglas le dicen <b>qué no mostrarte</b>. Cambiás y guardás:
+        la próxima búsqueda ya sale distinta.
+      </p>
+
+      <div class="regla">
+        <h3>Películas viejas</h3>
+        <p>Dijiste que las anteriores al 2000 te cuestan salvo que sean muy buenas. Así que
+           no restan puntos: directamente no aparecen si no llegan a la nota.</p>
+        <div class="campos">
+          <span>Anteriores a</span>
+          <input type="number" id="gAnio" min="1900" max="2030" step="1">
+          <span>solo si tienen nota TMDB de</span>
+          <input type="number" id="gNotaVieja" min="0" max="10" step="0.1">
+          <span>o más</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Calidad mínima</h3>
+        <p>El piso para cualquier recomendación. Sin esto la lista arrancaba bien y se caía
+           a pique en el puesto 5, porque cuando quedan pocos candidatos el relleno es
+           cualquier cosa. Si te quedan pocas opciones, bajalo.</p>
+        <div class="campos">
+          <span>Nota TMDB de</span>
+          <input type="number" id="gNotaMin" min="0" max="10" step="0.1">
+          <span>o más, y al menos</span>
+          <input type="number" id="gVotosMin" min="0" max="100000" step="50">
+          <span>votos</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Series</h3>
+        <p>Preferís las terminadas y que no sean eternas.</p>
+        <div class="campos">
+          <label class="interruptor"><input type="checkbox" id="gTerminadas"> Bajar las que siguen al aire</label>
+          <span>· Empezar a penalizar arriba de</span>
+          <input type="number" id="gEpisodios" min="0" max="2000" step="1">
+          <span>capítulos</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Nada que se repita ni se cuente desordenado</h3>
+        <p>Por Memento, que puntuaste 1, y el día de la marmota. Ojo: esto <b>no</b> incluye
+           los giros finales, que sí te gustan (El Gran Truco 8, Los sospechosos de siempre 8).
+           Una etiqueta por línea, en inglés, que es como las tiene TMDB.</p>
+        <textarea id="gEvitar" style="width:100%"></textarea>
+      </div>
+
+      <div class="regla">
+        <h3>Animación infantil</h3>
+        <p>Tus dieces de animación son de la infancia (Toy Story, Air Bud) y arrastraban todo
+           el catálogo Disney. <b>El anime está exento a propósito.</b> 0 = mostrármelas igual.</p>
+        <div class="campos">
+          <span>Cuánto le resto</span>
+          <input type="number" id="gInfantil" min="0" max="5" step="0.1">
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Estoy viendo ahora</h3>
+        <p>Una por línea. No te las voy a recomendar.</p>
+        <textarea id="gViendo" style="width:100%"></textarea>
+      </div>
+
+      <div class="regla">
+        <h3>Ya las vi, pero no las puntué</h3>
+        <p>Una por línea. Es la forma rápida de sacar de las recomendaciones todo lo que viste
+           y nunca anotaste.</p>
+        <textarea id="gYaVistas" style="width:100%"></textarea>
+      </div>
+
+      <div class="regla">
+        <h3>Notas sueltas</h3>
+        <p>Para lo que no entra en ninguna regla — que te tiene que enganchar en 20 minutos,
+           que hace rato no ves nada que te vuele la cabeza. <b>El motor todavía no las usa</b>,
+           quedan acá para que no se pierdan y para que decidamos qué convertir en regla.</p>
+        <textarea id="gNotas" style="width:100%"></textarea>
+      </div>
+
+      <div class="guardar">
+        <button class="primario" id="btnGuardarGustos">Guardar</button>
+        <span class="sub" id="estadoGustos"></span>
+      </div>
+    </section>
+  </div>
+
+  <div class="pie" id="pie"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const SALTO = String.fromCharCode(10);   // el salto de línea, sin pelear con escapes
+let U = localStorage.getItem("queVerUsuario") || "";
+const conU = (url) => url + (url.includes("?") ? "&" : "?") + "u=" + encodeURIComponent(U);
+
+const api = async (url, opts) => {
+  const r = await fetch(conU(url), opts);
+  const j = await r.json().catch(() => ({ error: "respuesta ilegible" }));
+  if (!r.ok) throw new Error(j.error || ("error " + r.status));
+  return j;
+};
+const post = (url, body) => api(url, {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}),
+});
+
+let estado = {};
+let preset = null;
+let generosElegidos = new Set();
+let generosVetados = new Set();
+let VOCABULARIO = [];
+let semillaActiva = null;
+let motivoFiltro = "";
+
+// Los ids son los de TMDB. Los de cine y TV difieren, por eso algunos van de a pares.
+const GENEROS = [
+  ["Drama", [18]], ["Comedia", [35]], ["Crimen", [80]], ["Suspenso", [53, 9648]],
+  ["Acción", [28, 10759]], ["Aventura", [12]], ["Ciencia ficción", [878, 10765]],
+  ["Terror", [27]], ["Documental", [99]], ["Animación", [16]], ["Bélica", [10752, 10768]],
+  ["Histórica", [36]],
+];
+
+/* ---------- Puntuar: la tira del 1 al 10, reusable ---------- */
+function tiraDeNotas(item, actual, alPuntuar, extras) {
+  const cont = document.createElement("div");
+  cont.className = "notas";
+  for (let n = 1; n <= 10; n++) {
+    const b = document.createElement("button");
+    b.textContent = n;
+    if (actual === n) b.classList.add("on");
+    b.onclick = async (ev) => {
+      ev.stopPropagation();
+      await post("/api/puntuar", {
+        key: item.key, kind: item.kind, tmdbId: item.tmdbId,
+        titulo: item.titulo, anio: item.anio, rating: n,
+        ...(extras ? extras() : {}),
+      });
+      alPuntuar?.(n);
+      cargarAcierto();
+contarGuardadas();
+    };
+    cont.appendChild(b);
+  }
+  return cont;
+}
+
+/* ---------- Pestañas ---------- */
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+    const cual = t.dataset.tab;
+    $("#vistaRec").classList.toggle("oculto", cual !== "rec");
+    $("#vistaBib").classList.toggle("oculto", cual !== "bib");
+    $("#vistaPun").classList.toggle("oculto", cual !== "pun");
+    $("#vistaGus").classList.toggle("oculto", cual !== "gus");
+    if (cual === "bib") cargarBiblioteca();
+    if (cual === "gus") cargarGustos();
+    if (cual === "pun" && !$("#rapidoLista").children.length) cargarRapido();
+    window.scrollTo({ top: 0 });
+  };
+});
+
+/* ---------- Mis gustos ---------- */
+async function cargarGustos() {
+  const { gustos } = await api("/api/gustos");
+  $("#gAnio").value = gustos.anioMinimo ?? 2000;
+  $("#gNotaVieja").value = gustos.notaMinimaViejas ?? 0;
+  $("#gNotaMin").value = gustos.notaMinima ?? 0;
+  $("#gVotosMin").value = gustos.votosMinimos ?? 0;
+  $("#gTerminadas").checked = !!gustos.seriesTerminadas;
+  $("#gEpisodios").value = gustos.maxEpisodios ?? 60;
+  $("#gInfantil").value = gustos.penalizarInfantil ?? 0;
+  $("#gEvitar").value = (gustos.evitarKeywords || []).join(SALTO);
+  $("#gViendo").value = (gustos.viendoAhora || []).join(SALTO);
+  $("#gYaVistas").value = (gustos.yaVistas || []).join(SALTO);
+  $("#gNotas").value = gustos.notas || "";
+}
+
+$("#btnGuardarGustos").onclick = async () => {
+  const b = $("#btnGuardarGustos");
+  b.disabled = true;
+  $("#estadoGustos").textContent = "Guardando…";
+  try {
+    const r = await post("/api/gustos/guardar", {
+      anioMinimo: $("#gAnio").value,
+      notaMinimaViejas: $("#gNotaVieja").value,
+      notaMinima: $("#gNotaMin").value,
+      votosMinimos: $("#gVotosMin").value,
+      seriesTerminadas: $("#gTerminadas").checked,
+      maxEpisodios: $("#gEpisodios").value,
+      penalizarInfantil: $("#gInfantil").value,
+      evitarKeywords: $("#gEvitar").value,
+      viendoAhora: $("#gViendo").value,
+      yaVistas: $("#gYaVistas").value,
+      notas: $("#gNotas").value,
+    });
+    $("#estadoGustos").textContent = r.marcadas
+      ? "Guardado. Marqué " + r.marcadas + " título(s) más como vistos."
+      : "Guardado. La próxima búsqueda ya usa estas reglas.";
+    $("#resultados").innerHTML = "";      // las reglas cambiaron: la lista vieja no vale
+    $("#btnMas").classList.add("oculto");
+  } catch (e) {
+    $("#estadoGustos").textContent = e.message;
+  }
+  b.disabled = false;
+};
+
+/* ---------- Estado general ---------- */
+async function refrescar() {
+  estado = await api("/api/estado");
+  U = estado.usuario;
+  localStorage.setItem("queVerUsuario", U);
+
+  const sel = $("#selUsuario");
+  sel.innerHTML = "";
+  for (const u of estado.usuarios) {
+    const o = document.createElement("option");
+    o.value = u.id; o.textContent = u.nombre; o.selected = u.id === U;
+    sel.appendChild(o);
+  }
+
+  const hayPerfil = estado.cantidad > 0;
+  $("#pKey").classList.toggle("oculto", estado.tieneKey);
+  $("#tabs").classList.toggle("oculto", !estado.tieneKey);
+  $("#pImport").classList.toggle("oculto", !estado.tieneKey || hayPerfil);
+  $("#pBuscar").classList.toggle("oculto", !hayPerfil);
+  $("#subtitulo").textContent = hayPerfil
+    ? estado.cantidad + " puntuadas · " + estado.pelis + " pelis · " + estado.series + " series"
+    : "";
+
+  if (!hayPerfil) {
+    const a = estado.archivoDetectado;
+    $("#btnArchivo").classList.toggle("oculto", !a);
+    $("#ayudaImport").innerHTML = a
+      ? "Encontré <code>data/" + a + "</code>. Le das a importar y listo. O pegá otra lista abajo."
+      : "Pegá tu lista acá abajo, o dejá un archivo en <code>que-ver/data/</code> y recargá.";
+  }
+  if (estado.trabajo?.error) {
+    $("#errImport").textContent = estado.trabajo.error;
+    $("#errImport").classList.remove("oculto");
+  }
+  return estado;
+}
+
+$("#selUsuario").onchange = async (e) => {
+  U = e.target.value;
+  localStorage.setItem("queVerUsuario", U);
+  $("#resultados").innerHTML = "";
+  const e2 = await refrescar();
+  if (e2.cantidad > 0) buscar();
+};
+
+$("#btnNuevoUsuario").onclick = async () => {
+  const nombre = prompt("Nombre del perfil nuevo (ej: Papá):");
+  if (!nombre?.trim()) return;
+  const r = await post("/api/usuarios", { nombre });
+  U = r.id;
+  localStorage.setItem("queVerUsuario", U);
+  $("#resultados").innerHTML = "";
+  await refrescar();
+};
+
+/* ---------- Importar ---------- */
+async function vigilarImport() {
+  $("#progreso").classList.remove("oculto");
+  const timer = setInterval(async () => {
+    const e = await refrescar();
+    const t = e.trabajo || {};
+    const pct = t.total ? Math.round(100 * t.hechas / t.total) : 0;
+    $("#barraFill").style.width = pct + "%";
+    $("#progresoTxt").textContent = t.activo ? t.paso + "… " + t.hechas + " de " + t.total : "";
+    if (!t.activo) {
+      clearInterval(timer);
+      $("#progreso").classList.add("oculto");
+      if (e.cantidad > 0) {
+        if (t.noResueltas > 0 && t.perdidos?.length) {
+          $("#pie").textContent = "No encontré en TMDB: " + t.perdidos.join(" · ");
+        }
+        buscar();
+      }
+    }
+  }, 700);
+}
+$("#btnArchivo").onclick = async () => { await post("/api/importar", { usarArchivo: true }); vigilarImport(); };
+$("#btnPegado").onclick = async () => {
+  const texto = $("#txtRatings").value;
+  if (!texto.trim()) return;
+  await post("/api/importar", { texto });
+  vigilarImport();
+};
+
+/* ---------- Recomendar ---------- */
+const PRESETS = [
+  ["liviana", "Liviana y corta"], ["tension", "Tensión"], ["autor", "Cine de autor"],
+  ["accion", "Acción"], ["rara", "Algo raro"], ["peli", "Película"], ["serie", "Serie"],
+];
+function pintarGeneros() {
+  const cont = $("#chipsGenero");
+  cont.innerHTML = "";
+  for (const [nombre, ids] of GENEROS) {
+    const b = document.createElement("button");
+    const activo = ids.every(i => generosElegidos.has(i));
+    const vetado = ids.every(i => generosVetados.has(i));
+    b.className = "chip" + (activo ? " on" : vetado ? " no" : "");
+    b.textContent = nombre;
+    b.title = "Un clic: solo de este género. Dos: nunca de este género.";
+    // Tres estados: neutro → solo esto → nunca esto → neutro
+    b.onclick = () => {
+      if (activo) {
+        ids.forEach(i => { generosElegidos.delete(i); generosVetados.add(i); });
+      } else if (vetado) {
+        ids.forEach(i => generosVetados.delete(i));
+      } else {
+        ids.forEach(i => generosElegidos.add(i));
+      }
+      pintarGeneros();
+    };
+    cont.appendChild(b);
+  }
+}
+
+function pintarChips() {
+  $("#chips").innerHTML = "";
+  for (const [id, txt] of PRESETS) {
+    const b = document.createElement("button");
+    b.className = "chip" + (preset === id ? " on" : "");
+    b.textContent = txt;
+    b.onclick = () => { preset = (preset === id ? null : id); pintarChips(); };
+    $("#chips").appendChild(b);
+  }
+}
+
+function tarjeta(p) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const esTv = p.kind === "tv";
+  const terminada = p.status && /ended|canceled|cancelled/i.test(p.status);
+  const largo = esTv
+    ? [p.temporadas ? p.temporadas + (p.temporadas === 1 ? " temp." : " temps.") : "",
+       p.episodios ? p.episodios + " cap." : ""].filter(Boolean).join(", ")
+    : (p.duracion ? p.duracion + " min" : "");
+  const datos = [esTv ? "Serie" : "Película", p.anio || "", largo,
+                 esTv ? (terminada ? "terminada" : "en emisión") : "",
+                 (p.generos || []).slice(0, 2).join(", ")].filter(Boolean).join(" · ");
+
+  const top = document.createElement("div");
+  top.className = "top";
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  if (p.poster) img.src = p.poster;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const h3 = document.createElement("h3");
+  const a = document.createElement("a");
+  a.href = p.imdb ? "https://www.imdb.com/title/" + p.imdb
+                  : "https://www.themoviedb.org/" + p.kind + "/" + p.tmdbId;
+  a.target = "_blank"; a.rel = "noopener"; a.textContent = p.titulo;
+  a.style.color = "inherit"; a.style.textDecoration = "none";
+  h3.appendChild(a);
+  const dd = document.createElement("div");
+  dd.className = "datos"; dd.textContent = datos; dd.style.marginBottom = "0";
+
+  // La nota de TMDB al lado de los datos, para tener una referencia externa
+  const tmdb = document.createElement("div");
+  tmdb.className = "tmdb";
+  tmdb.innerHTML = "<span class='marca'>TMDB</span> <b>" + (p.nota ? p.nota.toFixed(1) : "—") + "</b>";
+  if (p.votos) tmdb.title = p.votos.toLocaleString("es-AR") + " votos en TMDB";
+
+  // Qué tan segura está. Calibrado contra sus propias notas: por encima de 0.3
+  // el 94% se lleva 7+ y el 100% se lleva 6+.
+  const conf = document.createElement("div");
+  const c = p.confianza ?? 0;
+  // Muestro lo que el número SIGNIFICA, no el puntaje crudo: "0.44" se leía
+  // como "44% de posibilidades" cuando en sus datos ese nivel acierta el 100%.
+  const pr = p.probable;
+  const pct = pr === null || pr === undefined ? null : Math.min(96, Math.round(pr * 100));
+  const clase = pct === null ? "" : pct >= 90 ? "alta" : pct >= 80 ? "media" : "";
+  conf.className = "conf " + clase;
+  conf.textContent = pct === null
+    ? "confianza " + c.toFixed(2)
+    : pct + "% de las parecidas te gustaron";
+  conf.title = pct === null ? "" :
+    "De tus propias notas: de las que puntúan parecido a esta, el "
+    + pct + "% te lo llevaste con 7 o más." + SALTO
+    + "(puntaje interno " + c.toFixed(2) + "; medido sobre pelis que ya elegiste ver,"
+    + SALTO + "así que en el catálogo entero va a acertar algo menos)";
+
+  const filaMeta = document.createElement("div");
+  filaMeta.style.cssText = "display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px";
+  filaMeta.append(dd, tmdb, conf);
+
+  const mv = document.createElement("div"); mv.className = "motivo"; mv.textContent = p.motivo;
+  meta.append(h3, filaMeta, mv);
+  if (p.avisos?.length) {
+    const av = document.createElement("div"); av.className = "avisos";
+    av.textContent = p.avisos.join(" · ");
+    meta.appendChild(av);
+  }
+  top.append(img, meta);
+
+  const res = document.createElement("div");
+  res.className = "resumen corta";
+  res.textContent = p.resumen || "";
+  const verMas = document.createElement("div");
+  verMas.className = "verMas";
+  verMas.textContent = "ver descripción completa";
+  const alternar = () => {
+    const cortada = res.classList.toggle("corta");
+    verMas.textContent = cortada ? "ver descripción completa" : "ver menos";
+  };
+  res.onclick = alternar;
+  verMas.onclick = alternar;
+  // Solo ofrezco abrirla si de verdad no entra
+  if ((p.resumen || "").length < 170) verMas.classList.add("oculto");
+
+  // Panel de puntuar, oculto hasta que diga "Ya la vi"
+  const cajaPuntuar = document.createElement("div");
+  cajaPuntuar.className = "puntuar oculto";
+  const tit = document.createElement("div");
+  tit.className = "tit";
+  tit.textContent = "¿Qué le pondrías? Queda guardada en tus puntuaciones.";
+  const salir = document.createElement("button");
+  salir.className = "chico";
+  salir.textContent = "La vi pero no la puntúo";
+  salir.style.marginTop = "8px";
+  salir.onclick = async () => { await post("/api/feedback", { key: p.key, accion: "vista" }); sacar(); };
+  cajaPuntuar.append(tit, tiraDeNotas(p, null, () => { refrescar(); sacar(); }), salir);
+
+  const acc = document.createElement("div");
+  acc.className = "acciones";
+  const sacar = () => { el.style.transition = "opacity .18s"; el.style.opacity = "0"; setTimeout(() => el.remove(), 180); };
+  const mk = (txt, cls, fn) => {
+    const b = document.createElement("button");
+    b.className = cls; b.textContent = txt; b.onclick = fn;
+    return b;
+  };
+  acc.append(
+    mk("Ya la vi", "vi", () => cajaPuntuar.classList.toggle("oculto")),
+    mk("No me interesa", "no", async () => { await post("/api/feedback", { key: p.key, accion: "descartar" }); sacar(); }),
+    mk("Me la guardo", "", async () => {
+      await post("/api/feedback", { key: p.key, accion: "guardar" });
+      sacar(); contarGuardadas();
+    }),
+  );
+
+  el.append(top, res, verMas, cajaPuntuar, acc);
+  return el;
+}
+
+async function buscar(mas) {
+  $("#errBuscar").classList.add("oculto");
+  $("#btnBuscar").disabled = true;
+  $("#estadoBusqueda").textContent = "Buscando…";
+  try {
+    const q = new URLSearchParams({ texto: $("#inAnimo").value || "", n: "8" });
+    if (!mas) q.set("nueva", "1");   // empezar de cero vuelve a poner todo en juego
+    if (preset) q.set("preset", preset);
+    if (generosElegidos.size) q.set("generos", [...generosElegidos].join(","));
+    if (generosVetados.size) q.set("excluir", [...generosVetados].join(","));
+    if ($("#sinAnimacion").checked) q.set("sinAnimacion", "1");
+    if ($("#soloNuevas").checked) q.set("soloNuevas", "1");
+    if (!$("#porConfianza").checked) q.set("porConfianza", "0");
+    if (semillaActiva) q.set("semilla", semillaActiva.key);
+    const { lista } = await api("/api/recomendaciones?" + q);
+    if (!mas) $("#resultados").innerHTML = "";
+    for (const p of lista) {
+      const el = tarjeta(p);
+      el.dataset.conf = String(p.confianza ?? 0);
+      $("#resultados").appendChild(el);
+    }
+    // Cada tanda venía ordenada pero al apilarse la grilla quedaba desordenada:
+    // reordeno todo junto para que se lea de más a menos confianza.
+    if ($("#porConfianza").checked) {
+      const todas = [...$("#resultados").children]
+        .sort((a, b) => (+b.dataset.conf || 0) - (+a.dataset.conf || 0));
+      for (const el of todas) $("#resultados").appendChild(el);
+    }
+    // Si apretó "otras" y no vino nada, hay que DECIRLO: antes no pasaba nada
+    // en pantalla y parecía que el botón estaba roto.
+    const vacio = lista.length === 0;
+    $("#vacioRec").classList.toggle("oculto", !vacio);
+    $("#vacioRec").textContent = "Con estos filtros ya te ofrecí todo lo que encontré. "
+      + "Sacá algún filtro, o bajá la calidad mínima en Mis gustos.";
+    $("#btnMas").classList.remove("oculto");
+  } catch (e) {
+    $("#errBuscar").textContent = e.message;
+    $("#errBuscar").classList.remove("oculto");
+  }
+  $("#estadoBusqueda").textContent = "";
+  $("#btnBuscar").disabled = false;
+}
+$("#btnBuscar").onclick = () => { semillaActiva = null; pintarBanda(); buscar(false); };
+$("#btnMas").onclick = () => buscar(true);
+$("#inAnimo").addEventListener("keydown", e => { if (e.key === "Enter") buscar(false); });
+
+/* ---------- Guardadas ---------- */
+async function contarGuardadas() {
+  const e = await api("/api/estado").catch(() => null);
+  if (!e) return;
+  $("#filaGuardadas").classList.toggle("oculto", !e.guardadas);
+  $("#btnGuardadas").textContent = "Mis guardadas (" + (e.guardadas || 0) + ")";
+}
+
+async function verGuardadas() {
+  const cont = $("#listaGuardadas");
+  if (!cont.classList.contains("oculto")) { cont.classList.add("oculto"); return; }
+  const { lista } = await api("/api/guardadas");
+  cont.innerHTML = "";
+  cont.classList.remove("oculto");
+  for (const p of lista) {
+    const el = tarjeta({ ...p, motivo: "La guardaste para después.", confianza: 0, probable: null, avisos: [] });
+    cont.appendChild(el);
+  }
+}
+
+$("#btnGuardadas").onclick = verGuardadas;
+
+/* ---------- ¿Le achunta? El marcador contra la realidad ---------- */
+async function cargarAcierto() {
+  const r = await api("/api/acierto").catch(() => null);
+  if (!r) return;
+  const b = $("#bandaAcierto");
+  const d = r.sobre70;
+  if (!d || d.total < 3) {
+    b.classList.toggle("oculto", !r.pendientes);
+    if (r.pendientes) {
+      b.textContent = "Todavía no puedo medirme: te recomendé " + r.pendientes
+        + " y no puntuaste ninguna. Cuando veas alguna y le pongas nota, acá te digo si te acerté.";
+    }
+    return;
+  }
+  b.classList.remove("oculto");
+  b.innerHTML = "";
+  const t = document.createElement("span");
+  const dif = d.real - d.prometido;
+  t.innerHTML = "De las que te recomendé con <b>70% o más</b> y después puntuaste: "
+    + "<b>" + d.gustaron + " de " + d.total + "</b> te gustaron (" + d.real + "%). "
+    + "Yo te había prometido " + d.prometido + "%"
+    + (Math.abs(dif) <= 8 ? " — le pega." : dif < 0 ? " — prometo de más." : " — prometo de menos.");
+  b.appendChild(t);
+}
+
+/* ---------- "Más como esta" ---------- */
+function pintarBanda() {
+  const b = $("#bandaSemilla");
+  b.classList.toggle("oculto", !semillaActiva);
+  if (!semillaActiva) return;
+  b.innerHTML = "";
+  const t = document.createElement("span");
+  t.innerHTML = "Buscando parecidas a <b>" + semillaActiva.titulo.replace(/</g, "&lt;") + "</b>";
+  const x = document.createElement("button");
+  x.className = "chico"; x.textContent = "volver a todo";
+  x.onclick = () => { semillaActiva = null; pintarBanda(); buscar(false); };
+  b.append(t, x);
+}
+
+function pedirParecidas(item) {
+  semillaActiva = { key: item.key, titulo: item.titulo };
+  document.querySelectorAll(".tab").forEach(t => {
+    const esRec = t.dataset.tab === "rec";
+    t.classList.toggle("on", esRec);
+  });
+  $("#vistaRec").classList.remove("oculto");
+  $("#vistaBib").classList.add("oculto");
+  $("#vistaPun").classList.add("oculto");
+  $("#vistaGus").classList.add("oculto");
+  window.scrollTo({ top: 0 });
+  pintarBanda();
+  buscar(false);
+}
+
+/* ---------- Biblioteca ---------- */
+for (const [sel, etiqueta] of [["#fMin", "Desde "], ["#fMax", "Hasta "]]) {
+  const s = $(sel);
+  for (let n = 1; n <= 10; n++) {
+    const o = document.createElement("option");
+    o.value = n; o.textContent = etiqueta + n;
+    if ((sel === "#fMin" && n === 1) || (sel === "#fMax" && n === 10)) o.selected = true;
+    s.appendChild(o);
+  }
+}
+
+function pintarVocabulario() {
+  const cont = $("#chipsMotivo");
+  cont.innerHTML = "";
+  if (!VOCABULARIO.length) return;
+  for (const { motivo, n } of VOCABULARIO) {
+    const b = document.createElement("button");
+    b.className = "chip" + (motivoFiltro === motivo ? " on" : "");
+    b.textContent = motivo + " · " + n;
+    b.onclick = () => { motivoFiltro = motivoFiltro === motivo ? "" : motivo; cargarBiblioteca(); };
+    cont.appendChild(b);
+  }
+}
+
+async function cargarBiblioteca() {
+  const q = new URLSearchParams({
+    q: $("#fTexto").value, tipo: $("#fTipo").value,
+    min: $("#fMin").value, max: $("#fMax").value, orden: $("#fOrden").value,
+    motivo: motivoFiltro,
+  });
+  const r = await api("/api/biblioteca?" + q);
+  VOCABULARIO = r.vocabulario || [];
+  pintarVocabulario();
+  const listos = VOCABULARIO.filter(v => v.n >= 3).map(v => "«" + v.motivo + "»");
+  const marcadas = !r.conMotivo
+    ? " · sin motivos anotados todavía"
+    : " · " + r.conMotivo + " con motivo" + (listos.length
+        ? " · el motor ya usa " + listos.join(" y ")
+        : " · con 3 del mismo motivo el motor empieza a usarlo");
+  $("#resumenBib").textContent =
+    (r.mostrando === r.total
+      ? r.total + " títulos · " + r.pelis + " películas · " + r.series + " series"
+      : "Mostrando " + r.mostrando + " de " + r.total) + marcadas;
+
+  const cont = $("#listaBib");
+  cont.innerHTML = "";
+  $("#vacioBib").classList.toggle("oculto", r.lista.length > 0);
+  $("#vacioBib").textContent = r.total === 0
+    ? "Todavía no puntuaste nada."
+    : "Ningún título con esos filtros.";
+
+  for (const x of r.lista) {
+    const fila = document.createElement("div");
+    fila.className = "item";
+    const poster = document.createElement("img");
+    poster.className = "poster"; poster.loading = "lazy"; poster.alt = "";
+    if (x.poster) poster.src = x.poster;
+
+    const nota = document.createElement("div");
+    nota.className = "nota"; nota.textContent = x.rating;
+    nota.title = "Tu puntaje";
+
+    const nom = document.createElement("div");
+    nom.className = "nom";
+    const b = document.createElement("b");
+    const link = document.createElement("a");
+    link.href = x.imdb ? "https://www.imdb.com/title/" + x.imdb
+                       : "https://www.themoviedb.org/" + x.kind + "/" + x.tmdbId;
+    link.target = "_blank"; link.rel = "noopener"; link.textContent = x.titulo;
+    link.title = x.imdb ? "Abrir en IMDb" : "Abrir en TMDB (no tiene id de IMDb)";
+    b.appendChild(link);
+    const sp = document.createElement("span");
+    sp.textContent = " " + [x.kind === "tv" ? "serie" : "película", x.anio || "",
+                            (x.generos || []).join(", ")].filter(Boolean).join(" · ");
+    nom.append(b, document.createElement("br"), sp);
+
+    // Los motivos, con SUS palabras. Los ya usados aparecen como botón rápido.
+    const cajaMotivos = document.createElement("div");
+    cajaMotivos.className = "motivos";
+    const repintarMotivos = () => {
+      cajaMotivos.innerHTML = "";
+      for (const mot of (x.motivos || [])) {
+        const chip = document.createElement("span");
+        chip.className = "motivo-chip";
+        chip.innerHTML = "";
+        chip.append(document.createTextNode(mot));
+        const equis = document.createElement("span");
+        equis.className = "x"; equis.textContent = "×";
+        chip.appendChild(equis);
+        chip.title = "Sacar este motivo";
+        chip.onclick = () => guardarMotivos((x.motivos || []).filter(m => m !== mot));
+        cajaMotivos.appendChild(chip);
+      }
+    };
+    const guardarMotivos = async (nuevos) => {
+      const r = await post("/api/motivos", { key: x.key, motivos: nuevos });
+      x.motivos = r.motivos;
+      VOCABULARIO = r.vocabulario;
+      repintarMotivos();
+      pintarSelect();
+      pintarVocabulario();
+    };
+    repintarMotivos();
+    nom.appendChild(cajaMotivos);
+
+    // La nota de TMDB al costado, para comparar contra la tuya
+    const tmdb = document.createElement("div");
+    tmdb.className = "tmdb";
+    if (x.notaTmdb) {
+      tmdb.innerHTML = "<span class='marca'>TMDB</span> <b>" + x.notaTmdb.toFixed(1) + "</b>";
+      tmdb.title = (x.votosTmdb || 0).toLocaleString("es-AR") + " votos en TMDB";
+    } else {
+      tmdb.innerHTML = "<span class='marca'>TMDB</span> <b>—</b>";
+    }
+
+    // Un select nativo en vez del panel de chips: ocupa una línea, no clutterea
+    // 228 filas, y en el celular abre el selector del sistema.
+    const sel = document.createElement("select");
+    sel.className = "selEtiqueta";
+    const pintarSelect = () => {
+      sel.innerHTML = "";
+      const base = ["de chico", "lenta", "mal llevada", "predecible", "no la entendí"];
+      const usadas = (VOCABULARIO || []).map(v => v.motivo);
+      const opciones = [...new Set([...base, ...usadas])].filter(m => !(x.motivos || []).includes(m));
+      for (const [val, txt] of [["", "＋ etiqueta"], ...opciones.map(o => [o, o]), ["__otra", "otra…"]]) {
+        const o = document.createElement("option");
+        o.value = val; o.textContent = txt;
+        sel.appendChild(o);
+      }
+      sel.value = "";
+    };
+    pintarSelect();
+    sel.onchange = () => {
+      const v = sel.value;
+      sel.value = "";
+      if (!v) return;
+      if (v === "__otra") {
+        const txt = prompt("Una o dos palabras tuyas:", "");
+        if (txt && txt.trim()) guardarMotivos([...(x.motivos || []), txt]);
+        return;
+      }
+      guardarMotivos([...(x.motivos || []), v]);
+    };
+
+    const bts = document.createElement("div");
+    bts.className = "bts";
+    const parecidas = document.createElement("button");
+    parecidas.className = "chico"; parecidas.textContent = "Más como esta";
+    parecidas.title = "Recomendaciones parecidas a esta en particular";
+    parecidas.onclick = () => pedirParecidas(x);
+
+    const editar = document.createElement("button");
+    editar.className = "chico"; editar.textContent = "Cambiar nota";
+    const borrar = document.createElement("button");
+    borrar.className = "chico"; borrar.textContent = "Quitar";
+    borrar.onclick = async () => { await post("/api/despuntuar", { key: x.key }); cargarBiblioteca(); refrescar(); };
+    bts.append(parecidas, editar, borrar);
+
+    const editor = document.createElement("div");
+    editor.className = "puntuar oculto";
+    editor.style.width = "100%";
+    editor.appendChild(tiraDeNotas(x, x.rating, () => { cargarBiblioteca(); refrescar(); }));
+    editar.onclick = () => editor.classList.toggle("oculto");
+
+    fila.append(poster, nota, nom, tmdb, sel, bts, editor);
+    cont.appendChild(fila);
+  }
+}
+for (const s of ["#fTexto", "#fTipo", "#fMin", "#fMax", "#fOrden"]) {
+  $(s).addEventListener("input", cargarBiblioteca);
+  $(s).addEventListener("change", cargarBiblioteca);
+}
+
+/* ---------- Puntuar rápido lo que ya vio ---------- */
+let paginaRapido = 0;
+const yaPropuestas = new Set();
+
+async function cargarRapido() {
+  const cont = $("#rapidoLista");
+  $("#rapidoEstado").textContent = "Buscando…";
+  // Insiste hasta traer caras nuevas: si no, "Traer otras" repetía la misma tanda
+  let lista = [], puntuadas = 0, intentos = 0;
+  while (lista.length < 8 && intentos < 4) {
+    const r = await api("/api/para-puntuar?pagina=" + paginaRapido + "&tipo=" + $("#rapidoTipo").value);
+    puntuadas = r.puntuadas;
+    lista = (r.lista || []).filter(x => !yaPropuestas.has(x.key));
+    if (lista.length < 8) paginaRapido++;
+    intentos++;
+  }
+  for (const x of lista) yaPropuestas.add(x.key);
+  cont.innerHTML = "";
+  $("#rapidoEstado").textContent = lista.length
+    ? "Tenés " + puntuadas + " puntuadas"
+    : "No encontré más para proponerte.";
+  for (const x of lista) {
+    const card = document.createElement("div");
+    card.className = "rapidoCard";
+    const img = document.createElement("img");
+    img.loading = "lazy"; if (x.poster) img.src = x.poster;
+    const d = document.createElement("div");
+    d.className = "d";
+    const t = document.createElement("div");
+    t.className = "t"; t.textContent = x.titulo;
+    const s = document.createElement("div");
+    s.className = "s";
+    s.textContent = [x.anio, "TMDB " + (x.nota || 0).toFixed(1)].filter(Boolean).join(" · ");
+    const sacar = () => {
+      card.style.transition = "opacity .15s"; card.style.opacity = "0";
+      setTimeout(() => card.remove(), 150);
+    };
+    // "La dejé a la mitad" no inventa una nota: prende el modo y él elige el
+    // número de lo que llegó a ver. Queda con el motivo «la dejé», que es una
+    // señal más fuerte que cualquier puntaje.
+    let dejada = false;
+    const tira = tiraDeNotas(x, null, () => { sacar(); refrescar(); }, () => ({ dejada }));
+
+    const acciones = document.createElement("div");
+    acciones.className = "fila";
+    acciones.style.cssText = "gap:6px; margin-top:6px";
+    const mk = (txt, fn, titulo) => {
+      const b = document.createElement("button");
+      b.className = "chico nover"; b.textContent = txt;
+      if (titulo) b.title = titulo;
+      b.onclick = fn;
+      return b;
+    };
+    const saltar = async () => { await post("/api/saltar", { key: x.key }); sacar(); };
+    const btnDejada = mk("la dejé", () => {
+      dejada = !dejada;
+      btnDejada.classList.toggle("primario", dejada);
+      s.textContent = dejada
+        ? "¿Qué le pondrías a lo que llegaste a ver?"
+        : [x.anio, "TMDB " + (x.nota || 0).toFixed(1)].filter(Boolean).join(" · ");
+    }, "La empecé y no la terminé. Elegí la nota de lo que viste.");
+    acciones.append(
+      mk("no la vi", saltar),
+      mk("no me acuerdo", saltar, "La saco de esta lista sin puntuarla"),
+      btnDejada);
+
+    d.append(t, s, tira, acciones);
+    card.append(img, d);
+    cont.appendChild(card);
+  }
+}
+$("#btnRapidoMas").onclick = () => { paginaRapido++; cargarRapido(); };
+$("#rapidoTipo").onchange = () => { paginaRapido = 0; yaPropuestas.clear(); cargarRapido(); };
+
+/* ---------- Agregar algo nuevo ---------- */
+$("#btnAgregar").onclick = () => {
+  const c = $("#cajaAgregar");
+  c.classList.toggle("oculto");
+  if (!c.classList.contains("oculto")) $("#inBuscarTitulo").focus();
+};
+let tBusq = null;
+$("#inBuscarTitulo").addEventListener("input", () => {
+  clearTimeout(tBusq);
+  tBusq = setTimeout(async () => {
+    const q = $("#inBuscarTitulo").value.trim();
+    const cont = $("#resBusqueda");
+    cont.innerHTML = "";
+    if (q.length < 2) return;
+    const { lista } = await api("/api/buscar?q=" + encodeURIComponent(q));
+    for (const x of lista) {
+      const fila = document.createElement("div");
+      fila.className = "resultado-busq";
+      const img = document.createElement("img");
+      img.loading = "lazy"; if (x.poster) img.src = x.poster;
+      const t = document.createElement("div");
+      t.innerHTML = "<b>" + x.titulo.replace(/</g, "&lt;") + "</b><br><span class='sub'>"
+        + (x.kind === "tv" ? "serie" : "película") + (x.anio ? " · " + x.anio : "") + "</span>";
+      const notas = tiraDeNotas(x, null, () => {
+        $("#inBuscarTitulo").value = ""; cont.innerHTML = "";
+        cargarBiblioteca(); refrescar();
+      });
+      notas.style.flex = "1"; notas.style.maxWidth = "330px";
+      fila.append(img, t, document.createElement("div"), notas);
+      fila.children[2].style.flex = "1";
+      cont.appendChild(fila);
+    }
+  }, 300);
+});
+
+/* ---------- Exportar ---------- */
+$("#btnTxt").onclick = () => { location.href = conU("/api/exportar?formato=txt"); };
+$("#btnCsv").onclick = () => { location.href = conU("/api/exportar?formato=csv"); };
+
+/* ---------- API key ---------- */
+$("#btnKey").onclick = async () => {
+  $("#errKey").classList.add("oculto");
+  try { await post("/api/key", { key: $("#inKey").value.trim() }); await refrescar(); }
+  catch (e) { $("#errKey").textContent = e.message; $("#errKey").classList.remove("oculto"); }
+};
+
+pintarChips();
+pintarGeneros();
+cargarAcierto();
+refrescar().then(e => {
+  if (e.trabajo?.activo) vigilarImport();
+  else if (e.cantidad > 0) buscar();
+});
+</script>
+</body>
+</html>

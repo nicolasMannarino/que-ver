@@ -1,0 +1,14 @@
+{
+  "name": "Qué Ver",
+  "short_name": "Qué Ver",
+  "description": "Recomendador de películas y series sobre tus propias puntuaciones",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e1013",
+  "theme_color": "#0e1013",
+  "icons": [
+    { "src": "/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icono-mascara.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

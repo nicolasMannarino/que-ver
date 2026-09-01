@@ -1,0 +1,27 @@
+# --- Datos personales y estado de la app ---
+# Nada de data/ va al repo: adentro viven la API key de TMDB, las puntuaciones
+# de cada perfil, el historial y ~2700 archivos de cache. Es estado, no codigo.
+# El server recrea lo que necesita solo la primera vez que arranca.
+data/
+
+# --- Secretos ---
+.env
+.env.*
+!.env.example
+
+# --- Dependencias y builds ---
+node_modules/
+dist/
+build/
+
+# --- Hosting ---
+.vercel/
+.render/
+
+# --- Sistema operativo / editores ---
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.log
