@@ -229,10 +229,17 @@ function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGene
 }
 
 // --- Cronómetro ------------------------------------------------------------
-// Una búsqueda que tarda veinte segundos en el hosting y cuatro milisegundos en
-// tu compu no se diagnostica adivinando. Esto imprime en qué se va el tiempo,
-// tramo por tramo, en el log de Render.
+// Una búsqueda que tarda veinte segundos en el hosting y uno en tu compu no se
+// diagnostica adivinando. Esto imprime en qué se va el tiempo, tramo por tramo.
+//
+// Apagado salvo que pongas MEDIR=1: ya cumplió su trabajo —encontró que la CPU
+// de Render es hasta 8 veces más lenta y que se guardaban 61 KB por ficha para
+// leerle 2— y no hace falta una línea de log por búsqueda para siempre. Queda
+// puesto porque la próxima vez que algo ande lento, esto lo contesta en minutos.
+const MEDIR = process.env.MEDIR === "1";
+
 function reloj(nombre) {
+  if (!MEDIR) return { marca() {}, fin() { return 0; } };
   const t0 = Date.now();
   let ultimo = t0;
   const tramos = [];
@@ -1116,6 +1123,46 @@ async function calentarPerfiles() {
   console.log("    perfiles calientes.");
 }
 
+// --- No dormirse mientras la estás usando ------------------------------------
+// El plan gratis apaga la instancia a los 15 minutos sin visitas, y despertarla
+// tarda ~50 segundos. Peor: al reiniciar se borra el disco, así que el cache de
+// TMDB arranca vacío y la primera búsqueda paga de nuevo.
+//
+// Esto la mantiene despierta pidiéndose una página a sí misma. Render cuenta
+// horas de instancia, no visitas: te da 750 por mes y el mes tiene 730, así que
+// tenerla despierta 24 horas entra JUSTO y sin margen. Por eso se hace por
+// ventana horaria: de 9 a 1 son ~500 horas al mes, sobra lugar, y de madrugada
+// se duerme cuando no la mira nadie.
+//
+// Se prende poniendo MANTENER_DESPIERTO con el rango, en hora argentina:
+//     MANTENER_DESPIERTO=9-1
+function mantenerDespierto() {
+  const rango = process.env.MANTENER_DESPIERTO;
+  const url = process.env.RENDER_EXTERNAL_URL;
+  if (!rango || !url) return;
+
+  const [desde, hasta] = rango.split("-").map(Number);
+  if (!Number.isFinite(desde) || !Number.isFinite(hasta)) {
+    console.log("    MANTENER_DESPIERTO mal escrito: se espera algo como 9-1");
+    return;
+  }
+  const horaAca = () => +new Intl.DateTimeFormat("es-AR", {
+    timeZone: process.env.ZONA_HORARIA || "America/Argentina/Buenos_Aires",
+    hour: "numeric", hour12: false,
+  }).format(new Date());
+  // El rango puede cruzar la medianoche (9 a 1): ahí la comparación se da vuelta.
+  const enHorario = () => {
+    const h = horaAca();
+    return desde <= hasta ? (h >= desde && h < hasta) : (h >= desde || h < hasta);
+  };
+
+  console.log(`    despierta de ${desde} a ${hasta} (hora argentina)`);
+  setInterval(() => {
+    if (!enHorario()) return;
+    fetch(url + "/api/sesion").catch(() => { /* si falla, la próxima */ });
+  }, 10 * 60e3).unref();     // unref: que esto solo no impida cerrar el proceso
+}
+
 function ipDeLaRed() {
   for (const list of Object.values(os.networkInterfaces())) {
     for (const i of list || []) if (i.family === "IPv4" && !i.internal) return i.address;
@@ -1131,6 +1178,7 @@ server.listen(PUERTO, "0.0.0.0", () => {
     console.log("    puerto:    " + PUERTO);
     console.log("    cuentas:   " + Auth.cantidadDeCuentas());
     // Solo publicado: en tu compu el cache sobrevive y no hace falta.
+    mantenerDespierto();
     calentarPerfiles().catch(e => console.error("    calentar falló:", e.message));
   } else {
     const ip = ipDeLaRed();

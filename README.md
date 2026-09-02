@@ -356,7 +356,14 @@ vueltas a la base, 14 segundos; juntas, 3.
 ### Lo que hay que saber del plan gratis
 
 - **Se duerme a los 15 minutos sin visitas** y la primera carga después tarda cerca de
-  un minuto en despertar. Las siguientes van normales.
+  un minuto en despertar. Peor: al reiniciar se borra el disco, así que el cache
+  arranca vacío. Con `MANTENER_DESPIERTO=9-1` la app se pide una página a sí misma
+  cada diez minutos dentro de ese horario y no se duerme. Render da 750 horas de
+  instancia por mes y el mes tiene 730, así que 24 horas entra justo y sin margen:
+  por eso va por ventana. De 9 a 1 son ~500 horas.
+- **La CPU del plan gratis es un núcleo compartido**, entre 1 y 8 veces más lenta que
+  una de escritorio y variable de minuto a minuto. Medible en `/api/pulso`. Es el
+  techo de lo que se puede mejorar sin pagar.
 - **Una sola instancia.** El server carga todo a memoria al arrancar y escribe a
   Postgres en cada cambio. Eso vale porque no hay un segundo proceso que le pise los
   datos por atrás. Si algún día hay más de uno, esto hay que cambiarlo.
@@ -370,6 +377,8 @@ vueltas a la base, 14 segundos; juntas, 3.
 | `TMDB_API_KEY` | Solo para correrlo local sin cargar la key desde la web. |
 | `PORT` | Por defecto 5173. Render lo pone solo. |
 | `REQUERIR_LOGIN=1` | Fuerza el modo con cuentas sin base, para probarlo en tu compu. |
+| `MANTENER_DESPIERTO` | Rango horario en el que la app no se deja dormir, ej. `9-1`. |
+| `MEDIR=1` | Escribe en el log cuánto tarda cada tramo de una búsqueda. |
 | `ADMIN_EMAILS` | Quién puede generar invitaciones, separado por comas. Sin esto, el dueño es la primera cuenta que se creó. |
 | `REGISTRO_PERMITIDO` | Mails que pueden registrarse sin código. La escotilla para no quedarte afuera de tu propia app. |
 
