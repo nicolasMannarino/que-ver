@@ -89,8 +89,10 @@ async function perfilDe(id) {
   const puntuadas = D.cargar(id);
   if (!puntuadas.length) return null;
 
+  const r = reloj("perfil " + id);
   // Una sola consulta para las 284 fichas, en vez de 284 sueltas.
-  await T.precargar(puntuadas);
+  const dePg = await T.precargar(puntuadas);
+  r.marca("precarga(" + dePg + ")");
   const vistas = (await M.fichas(puntuadas)).map(v => ({
     ...v, motivos: puntuadas.find(p => p.key === v.key)?.motivos || [],
   }));
@@ -100,13 +102,17 @@ async function perfilDe(id) {
       if (k?.id && k?.name) kwNombres[k.id] = k.name;
     }
   }
+  r.marca("fichas");
   const perfil = M.perfil(vistas);
   perfil.kwNombres = kwNombres;
+  r.marca("perfil");
   // La curva que traduce el puntaje crudo a "cuánto de esto te gustó". Tarda
   // ~300 ms y queda en memoria con el perfil.
   perfil.curva = M.calibrar(vistas);
+  r.marca("calibrar");
   const entrada = { perfil, vistas };
   perfiles.set(id, entrada);
+  r.fin();
   return entrada;
 }
 const invalidar = (id) => { perfiles.delete(id); colas.delete(id); };
@@ -222,11 +228,37 @@ function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGene
   return salida;
 }
 
+// --- Cronómetro ------------------------------------------------------------
+// Una búsqueda que tarda veinte segundos en el hosting y cuatro milisegundos en
+// tu compu no se diagnostica adivinando. Esto imprime en qué se va el tiempo,
+// tramo por tramo, en el log de Render.
+function reloj(nombre) {
+  const t0 = Date.now();
+  let ultimo = t0;
+  const tramos = [];
+  return {
+    marca(que) {
+      const ahora = Date.now();
+      const ms = ahora - ultimo;
+      if (ms >= 1) tramos.push(que + " " + ms + "ms");
+      ultimo = ahora;
+    },
+    fin(extra = "") {
+      const total = Date.now() - t0;
+      console.log(`  [${nombre}] ${total}ms  ${tramos.join(" · ")}${extra ? "  " + extra : ""}`);
+      return total;
+    },
+  };
+}
+
 async function enriquecer(finalistas) {
   // Lo mismo que con el perfil: una consulta para los ~120 candidatos en vez de
   // 120 sueltas. Es el grueso de lo que tarda una búsqueda con el cache frío.
-  await T.precargar(finalistas);
-  return (await T.pool(finalistas, 8, async (c) => {
+  const r = reloj("enriquecer " + finalistas.length);
+  const dePg = await T.precargar(finalistas);
+  r.marca("precarga(" + dePg + ")");
+  const pedidosAntes = T.stats().requests;
+  const salida = (await T.pool(finalistas, 8, async (c) => {
     const d = await T.details(c.kind, c.tmdbId);
     if (!d) return c;
     const r = M.rasgos(d, c.kind);
@@ -237,6 +269,9 @@ async function enriquecer(finalistas) {
     c.imdb = d.imdb_id || null;
     return c;
   })).filter(Boolean);
+  r.marca("fichas");
+  r.fin(`(${T.stats().requests - pedidosAntes} a TMDB)`);
+  return salida;
 }
 
 const paraElFront = (c, perfil) => ({
@@ -347,14 +382,17 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
       return elegidas;
     }
   }
+  const rr = reloj("recomendar n=" + n);
   sumar(await evaluar(await traer(excl, 1)));
-  if (juntadas.size < n) sumar(await evaluar(await traer(excl, 3)));
+  rr.marca("ronda1");
+  if (juntadas.size < n) { sumar(await evaluar(await traer(excl, 3))); rr.marca("ronda2"); }
   for (let salto = 0; salto < 4 && juntadas.size < n; salto++) {
     sumar(await evaluar(await M.candidatosAmplios(perfil, {
       excluir: excl, generos: generosParaSemillas, anioMinimo: prefsEfectivas?.anioMinimo, tipo,
       desde: 1 + (rondasYaOfrecidas + salto) * 4, paginas: 5,
     })));
   }
+  rr.marca("catalogo");
   const conFe = [...juntadas.values()];
   const ordenada = porConfianza
     ? conFe.sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0))
@@ -372,6 +410,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     }
   }
   guardarEstado(id, estado);
+  rr.fin(`(${juntadas.size} candidatos)`);
   return salida;
 }
 
@@ -673,6 +712,7 @@ async function manejar(req, res, url, cuenta) {
     }
 
     if (url.pathname === "/api/recomendaciones") {
+      const cron = reloj("BUSQUEDA");
       const lista = await recomendarEnOrden(usuarioDe(url, cuenta), {
         preset: url.searchParams.get("preset") || null,
         texto: url.searchParams.get("texto") || "",
@@ -685,6 +725,9 @@ async function manejar(req, res, url, cuenta) {
         semilla: url.searchParams.get("semilla") || null,
         nueva: url.searchParams.get("nueva") === "1",
       });
+      cron.fin(`-> ${lista.length} tarjetas` +
+               (url.searchParams.get("generos") ? ` (genero ${url.searchParams.get("generos")})` : "") +
+               (url.searchParams.get("nueva") === "1" ? " [nueva]" : " [otras]"));
       return json(res, 200, { lista });
     }
 
