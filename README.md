@@ -334,12 +334,29 @@ contienen tu propio mail.
 cuenta lleva un número de versión y subirlo de uno deja vieja a toda cookie
 emitida hasta ese momento.
 
+### El cache tiene que sobrevivir al reinicio
+
+Armar una búsqueda son ~120 pedidos a TMDB y armar el perfil otros 284. Medido:
+
+    cache lleno      0,8 s
+    cache vacío     34   s
+
+En Render el disco se borra cada vez que la instancia se despierta, así que **cada
+sesión empezaba fría** y esos 34 segundos se los comía el que entraba.
+
+Por eso el cache es de tres niveles: **disco → Postgres → TMDB**. Lo estable (las
+fichas, las recomendadas, las colecciones) se guarda gzipeado en la base y
+sobrevive los reinicios; lo que cambia seguido no. Una ficha con créditos y
+keywords pesa ~100 KB en JSON y ~10 KB comprimida: 285 fichas son 4 MB, contra el
+medio giga del plan gratis de Neon.
+
+Y se piden **de a muchas en una sola consulta**: una por una eran 284 idas y
+vueltas a la base, 14 segundos; juntas, 3.
+
 ### Lo que hay que saber del plan gratis
 
 - **Se duerme a los 15 minutos sin visitas** y la primera carga después tarda cerca de
   un minuto en despertar. Las siguientes van normales.
-- **El cache de TMDB vive en disco efímero**: cada reinicio arranca vacío y se vuelve a
-  llenar solo. Es cache, no datos.
 - **Una sola instancia.** El server carga todo a memoria al arrancar y escribe a
   Postgres en cada cambio. Eso vale porque no hay un segundo proceso que le pise los
   datos por atrás. Si algún día hay más de uno, esto hay que cambiarlo.

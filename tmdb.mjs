@@ -20,6 +20,37 @@ export const conKey = (k, fn) => (k ? contexto.run({ key: String(k).trim() }, fn
 const keyActual = () => contexto.getStore()?.key || apiKey;
 
 export function setKey(k) { apiKey = (k || "").trim(); }
+
+// --- Cache de segundo nivel, opcional --------------------------------------
+// El de disco es rapido pero efimero: en Render se borra cada vez que la
+// instancia se despierta. Detras puede haber uno que sobreviva (Postgres). Se
+// enchufa desde afuera para que este archivo no sepa nada de bases de datos.
+//
+// Solo lo estable: las fichas de una pelicula, sus recomendadas, una coleccion,
+// una persona. Lo que cambia seguido (discover, busquedas) no vale la pena
+// guardarlo para siempre.
+let persistente = null;
+const PERSISTIBLE = /^\/(movie|tv)\/\d+$|^\/(movie|tv)\/\d+\/(recommendations|similar)$|^\/collection\/\d+$|^\/person\/\d+/;
+export function usarCachePersistente(hooks) { persistente = hooks; }
+
+// Trae de una sola vez las fichas de una lista entera y las deja en el disco.
+// Sin esto, armar el perfil son 284 consultas sueltas a la base. La clave se
+// arma ACA porque este archivo es el unico que sabe como se forma.
+export async function precargar(items) {
+  if (!persistente?.leerVarias) return 0;
+  const claves = [];
+  for (const it of items) {
+    if (!it?.kind || !it?.tmdbId) continue;
+    const qs = new URLSearchParams({ language: "es-MX", append_to_response: "keywords,credits" });
+    const k = `/${it.kind}/${it.tmdbId}?` + qs.toString();
+    if (!readCache(k, 7 * 24 * 3600e3)) claves.push(k);
+  }
+  if (!claves.length) return 0;
+  const encontradas = await persistente.leerVarias(claves);
+  for (const [k, v] of encontradas) writeCache(k, v);
+  return encontradas.size;
+}
+const vaAlPersistente = (endpoint) => !!persistente && PERSISTIBLE.test(endpoint);
 export function stats() { return { requests }; }
 
 function cachePath(key) {
@@ -59,6 +90,13 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
   const hit = readCache(key, ttl);
   if (hit) return hit;
 
+  // Segundo nivel: lo que sobrevivio al ultimo reinicio. Si esta, se copia al
+  // disco para que el resto de esta sesion lo tenga a mano sin volver a la base.
+  if (vaAlPersistente(endpoint)) {
+    const guardado = await persistente.leer(key);
+    if (guardado) { writeCache(key, guardado); return guardado; }
+  }
+
   const headers = { accept: "application/json" };
   let url = BASE + endpoint + "?" + qs.toString();
   if (laKey.startsWith("ey")) headers.authorization = "Bearer " + laKey; // token v4
@@ -78,6 +116,7 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
   }
   const json = await res.json();
   writeCache(key, json);
+  if (vaAlPersistente(endpoint)) persistente.escribir(key, json);
   return json;
 }
 

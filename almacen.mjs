@@ -14,6 +14,7 @@
 // Mantenerla igual es lo que evitó reescribir datos.mjs y server.mjs enteros.
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 const DIR = import.meta.dirname;
 export const DATA = path.join(DIR, "data");
@@ -66,10 +67,79 @@ export async function abrir() {
     )
   `);
 
+  // El cache de TMDB va en su propia tabla y NO se carga a memoria. Son decenas
+  // de miles de fichas: traerlas todas en cada arranque costaria mas de lo que
+  // ahorra, y el limite de transferencia de Neon es de 5 GB por mes. Se leen de
+  // a una, cuando hacen falta.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cache_tmdb (
+      clave       TEXT PRIMARY KEY,
+      valor       BYTEA NOT NULL,
+      actualizado TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
   const { rows } = await pool.query("SELECT clave, valor FROM archivos");
   memoria = new Map(rows.map(r => [r.clave, r.valor]));
   modo = "postgres";
   return modo;
+}
+
+// --- Cache de TMDB que sobrevive los reinicios --------------------------------
+// El disco de Render se borra cada vez que la instancia se despierta, y armar
+// una busqueda con el cache vacio son ~120 pedidos a TMDB: 34 segundos medidos
+// contra 0,8 con el cache lleno. Esto lo hace persistente.
+//
+// Comprimido: una ficha con creditos y keywords pesa ~100 KB en JSON y ~10 KB
+// gzipeada. Multiplicado por miles de titulos, es la diferencia entre entrar o
+// no entrar en el medio giga del plan gratis.
+
+export async function cacheLeer(clave) {
+  if (modo !== "postgres") return null;
+  try {
+    const { rows } = await pool.query(
+      "SELECT valor FROM cache_tmdb WHERE clave = $1", [clave]);
+    if (!rows.length) return null;
+    return JSON.parse(zlib.gunzipSync(rows[0].valor).toString("utf8"));
+  } catch { return null; }        // el cache es best-effort, nunca rompe la app
+}
+
+// De a muchas y en UNA consulta. Armar el perfil son 284 fichas: pedirlas una
+// por una son 284 idas y vueltas a la base, y aunque cada una tarde poco, la
+// suma se nota. Asi es un solo viaje.
+export async function cacheLeerVarias(claves) {
+  const salida = new Map();
+  if (modo !== "postgres" || !claves.length) return salida;
+  try {
+    const { rows } = await pool.query(
+      "SELECT clave, valor FROM cache_tmdb WHERE clave = ANY($1)", [claves]);
+    for (const r of rows) {
+      try { salida.set(r.clave, JSON.parse(zlib.gunzipSync(r.valor).toString("utf8"))); }
+      catch { /* una fila corrupta no tira las demas */ }
+    }
+  } catch { /* best-effort */ }
+  return salida;
+}
+
+export function cacheEscribir(clave, valor) {
+  if (modo !== "postgres") return;
+  let comprimido;
+  try { comprimido = zlib.gzipSync(Buffer.from(JSON.stringify(valor), "utf8")); }
+  catch { return; }
+  // Fuera de la cola de escritura de los datos: que guardar una ficha de TMDB
+  // no demore el guardado de una puntuacion tuya.
+  pool.query(
+    "INSERT INTO cache_tmdb (clave, valor, actualizado) VALUES ($1, $2, now()) " +
+    "ON CONFLICT (clave) DO UPDATE SET valor = $2, actualizado = now()",
+    [clave, comprimido],
+  ).catch(() => { /* best-effort */ });
+}
+
+export async function cacheTamanio() {
+  if (modo !== "postgres") return null;
+  const { rows } = await pool.query(
+    "SELECT count(*)::int AS n, coalesce(sum(length(valor)),0)::bigint AS bytes FROM cache_tmdb");
+  return { n: rows[0].n, mb: Number(rows[0].bytes) / 1e6 };
 }
 
 // Vuelve a leer todo de la base. Hace falta cuando alguien escribió por afuera

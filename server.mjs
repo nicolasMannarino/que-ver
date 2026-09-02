@@ -27,6 +27,14 @@ await A.abrir();
 
 const CON_LOGIN = Auth.requiereLogin();
 
+// Con base de datos, el cache de TMDB sobrevive los reinicios. Sin ella no hace
+// falta: el disco de tu compu no se borra solo.
+if (A.backend() === "postgres") {
+  T.usarCachePersistente({
+    leer: A.cacheLeer, leerVarias: A.cacheLeerVarias, escribir: A.cacheEscribir,
+  });
+}
+
 // La key sale del entorno primero y del archivo después. El entorno manda
 // porque es la única vía en un hosting: allá no hay disco donde dejar un
 // config.json, y una key en un archivo del repo es una key publicada.
@@ -81,6 +89,8 @@ async function perfilDe(id) {
   const puntuadas = D.cargar(id);
   if (!puntuadas.length) return null;
 
+  // Una sola consulta para las 284 fichas, en vez de 284 sueltas.
+  await T.precargar(puntuadas);
   const vistas = (await M.fichas(puntuadas)).map(v => ({
     ...v, motivos: puntuadas.find(p => p.key === v.key)?.motivos || [],
   }));
@@ -213,6 +223,9 @@ function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGene
 }
 
 async function enriquecer(finalistas) {
+  // Lo mismo que con el perfil: una consulta para los ~120 candidatos en vez de
+  // 120 sueltas. Es el grueso de lo que tarda una búsqueda con el cache frío.
+  await T.precargar(finalistas);
   return (await T.pool(finalistas, 8, async (c) => {
     const d = await T.details(c.kind, c.tmdbId);
     if (!d) return c;
