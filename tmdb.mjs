@@ -78,6 +78,49 @@ function writeCache(key, value) {
   } catch { /* el cache es best-effort */ }
 }
 
+// De una ficha de TMDB se usa el 3%: el resto es el reparto completo —cientos de
+// personas—, imagenes, traducciones y companias productoras. Medido: 61 KB por
+// ficha, de los cuales el motor lee 2.
+//
+// Guardar los 61 no es gratis. En Render leer cien fichas de la base tardaba 1,1
+// segundos entre transferencia y descompresion, y esa CPU descomprime 19 veces
+// mas lento que una de escritorio. Recortando, las mismas cien pesan 14 veces
+// menos.
+//
+// Si algun dia el motor necesita un campo que no esta en esta lista, hay que
+// agregarlo ACA y borrar el cache: lo que no esta, no vuelve.
+const CON_FICHA = /^\/(movie|tv)\/\d+$/;
+
+export function recortar(j) {
+  if (!j || typeof j !== "object") return j;
+  const cr = j.credits || {};
+  return {
+    id: j.id, title: j.title, name: j.name, overview: j.overview,
+    poster_path: j.poster_path, imdb_id: j.imdb_id,
+    genres: j.genres || [], status: j.status,
+    release_date: j.release_date, first_air_date: j.first_air_date,
+    original_language: j.original_language,
+    runtime: j.runtime, episode_run_time: j.episode_run_time,
+    belongs_to_collection: j.belongs_to_collection ? { id: j.belongs_to_collection.id } : null,
+    vote_count: j.vote_count, vote_average: j.vote_average,
+    number_of_episodes: j.number_of_episodes, number_of_seasons: j.number_of_seasons,
+    keywords: { keywords: (j.keywords?.keywords || j.keywords?.results || [])
+      .map(k => ({ id: k.id, name: k.name })) },
+    credits: {
+      // Los que el perfil mira: quien dirigio, quien escribio, y la cabecera del
+      // reparto. Del resto no se entera nadie.
+      crew: (cr.crew || [])
+        .filter(c => c.job === "Director" || c.job === "Creator" || c.department === "Writing")
+        // 25 y no 10: el motor busca al director y a los dos primeros guionistas
+        // DENTRO de esta lista, y en un equipo grande cortando en 10 se quedaba
+        // afuera el director. Se notaba en la tercera decimal de la confianza.
+        .slice(0, 25)
+        .map(c => ({ id: c.id, name: c.name, job: c.job, department: c.department })),
+      cast: (cr.cast || []).slice(0, 8).map(c => ({ id: c.id, name: c.name })),
+    },
+  };
+}
+
 // Una semana para detalles, un dia para listas que cambian seguido
 export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}) {
   const laKey = keyActual();
@@ -114,7 +157,8 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
     if (res.status === 404) return null;
     throw new Error("TMDB_" + res.status);
   }
-  const json = await res.json();
+  const crudo = await res.json();
+  const json = CON_FICHA.test(endpoint) ? recortar(crudo) : crudo;
   writeCache(key, json);
   if (vaAlPersistente(endpoint)) persistente.escribir(key, json);
   return json;
