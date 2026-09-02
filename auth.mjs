@@ -400,3 +400,9 @@ export const publico = (c) => c && ({
 });
 
 export const cantidadDeCuentas = () => cuentas().length;
+
+// Token del banco de pruebas. Sale del secreto del servidor, así que lo conoce
+// quien administra la app y nadie más. No da acceso a ningún dato: solo permite
+// correr el banco, que quema CPU y por eso no puede quedar abierto.
+export const tokenDePulso = () =>
+  crypto.createHash("sha256").update(clave() + "|pulso").digest("hex").slice(0, 16);

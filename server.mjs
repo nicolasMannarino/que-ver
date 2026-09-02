@@ -541,7 +541,9 @@ const archivoSemilla = () => {
 // Lo único que se puede tocar sin sesión. La lista es corta y explícita a
 // propósito: si mañana agrego una ruta y me olvido de anotarla, queda cerrada,
 // que es el lado correcto para equivocarse.
-const LIBRES = new Set(["/api/sesion", "/api/registro", "/api/entrar", "/api/salir"]);
+// /api/pulso no pide sesión porque trae su propio token y no devuelve datos
+// de nadie: solo cuánto tardó la máquina en hacer un trabajo fijo.
+const LIBRES = new Set(["/api/sesion", "/api/registro", "/api/entrar", "/api/salir", "/api/pulso"]);
 const ipDe = (req) =>
   (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "";
 
@@ -1000,6 +1002,62 @@ async function manejar(req, res, url, cuenta) {
       if (accion === "sacar") e.guardadas = e.guardadas.filter(k => k !== key);
       guardarEstado(id, e);
       return json(res, 200, { ok: true });
+    }
+
+    // ---- pulso: qué tan rápida es esta máquina ----
+    // Una búsqueda tarda 1 segundo en una compu y veinte en el hosting. Para
+    // saber por qué hace falta medir la máquina, no la app: esto corre siempre
+    // el mismo trabajo fijo y devuelve cuánto tardó. No lee datos de nadie.
+    if (url.pathname === "/api/pulso") {
+      if (url.searchParams.get("t") !== Auth.tokenDePulso()) {
+        return json(res, 404, { error: "no existe" });
+      }
+      const medir = (fn) => { const t = Date.now(); fn(); return Date.now() - t; };
+
+      // 1. CPU pura, en coma flotante: es lo que hace puntuar() y calibrar()
+      const cpu = medir(() => {
+        let x = 0;
+        for (let i = 1; i < 6e6; i++) x += Math.sqrt(i) * 1.0000001;
+        if (x < 0) console.log(x);            // que no lo optimice a la nada
+      });
+
+      // 2. Descomprimir, que es lo que agregué con el cache en Postgres
+      const zlib = await import("node:zlib");
+      const muestra = zlib.gzipSync(Buffer.from(JSON.stringify(
+        { relleno: Array.from({ length: 4000 }, (_, i) => ({ i, t: "texto de relleno " + i })) })));
+      const gunzip = medir(() => { for (let i = 0; i < 20; i++) zlib.gunzipSync(muestra); });
+
+      // 3. scrypt, que es lo que corre al entrar
+      const cryptoM = await import("node:crypto");
+      const scrypt = medir(() => cryptoM.scryptSync("prueba", "sal", 64, { N: 16384, r: 8, p: 1 }));
+
+      // 4. La base: ida y vuelta, y una lectura de a muchas
+      let db = null, dbLote = null, entradas = null;
+      if (A.backend() === "postgres") {
+        const t1 = Date.now();
+        for (let i = 0; i < 5; i++) await A.pingBase();
+        db = Math.round((Date.now() - t1) / 5);
+        const tam = await A.cacheTamanio();
+        entradas = tam?.n ?? null;
+        const claves = await A.cacheAlgunasClaves(100);
+        const t2 = Date.now();
+        await A.cacheLeerVarias(claves);
+        dbLote = Date.now() - t2;
+      }
+
+      return json(res, 200, {
+        node: process.version,
+        cpus: os.cpus().length,
+        modelo: os.cpus()[0]?.model || "?",
+        memoriaMB: Math.round(process.memoryUsage().rss / 1e6),
+        libreMB: Math.round(os.freemem() / 1e6),
+        cargaPromedio: os.loadavg().map(x => +x.toFixed(2)),
+        arribaHace: Math.round(process.uptime()) + "s",
+        ms: { cpu, gunzip20: gunzip, scrypt, dbPing: db, dbLote100: dbLote },
+        cacheEnLaBase: entradas,
+        perfilesEnMemoria: perfiles.size,
+        colasEnMemoria: colas.size,
+      });
     }
 
     // ---- estáticos ----

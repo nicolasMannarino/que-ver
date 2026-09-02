@@ -135,6 +135,19 @@ export function cacheEscribir(clave, valor) {
   ).catch(() => { /* best-effort */ });
 }
 
+// Para el banco de pruebas: una ida y vuelta a la base, sin traer nada.
+export async function pingBase() {
+  if (modo !== "postgres") return null;
+  await pool.query("SELECT 1");
+}
+
+// Unas claves cualesquiera, para medir cuánto tarda leer de a muchas.
+export async function cacheAlgunasClaves(n = 100) {
+  if (modo !== "postgres") return [];
+  const { rows } = await pool.query("SELECT clave FROM cache_tmdb LIMIT $1", [n]);
+  return rows.map(r => r.clave);
+}
+
 export async function cacheTamanio() {
   if (modo !== "postgres") return null;
   const { rows } = await pool.query(
