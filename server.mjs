@@ -446,9 +446,16 @@ async function recomendarEnOrden(id, opciones) {
   let cola = colas.get(id);
 
   if (!cola || cola.firma !== firma) {
+    // 24 y no 60. El pozo de candidatos da ~48 como mucho, así que pidiendo 60
+    // nunca llegaba y agotaba TODAS las fuentes en cada búsqueda: las dos rondas
+    // de vecinos más cuatro barridos de catálogo. Medido: 1308 ms contra 774 ms,
+    // y 24 siguen siendo tres tandas completas de 8. En la CPU de Render, que es
+    // entre 3 y 8 veces más lenta que una de escritorio, esa diferencia son
+    // segundos que el que mira siente.
+    //
     // diversificar() rellena el final sin respetar el orden, así que reordeno:
     // la cola tiene que bajar siempre, tanda tras tanda.
-    const lista = (await recomendar(id, { ...base, n: 60 }))
+    const lista = (await recomendar(id, { ...base, n: 24 }))
       .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
     cola = { firma, lista, servidas: new Set(), vista: null };
     colas.set(id, cola);
@@ -499,7 +506,7 @@ async function recomendarEnOrden(id, opciones) {
   // Sin filtro y con la cola agotada: sigo abajo de lo último servido, para que
   // "mostrame otras" nunca traiga algo mejor que lo que ya ofreció.
   if (tanda.length < n && !generos?.length && !excluir?.length) {
-    const mas = await recomendar(id, { ...base, n: 60 });
+    const mas = await recomendar(id, { ...base, n: 24 });
     const conocidas = new Set(cola.lista.map(x => x.key));
     const tope = tanda.length ? tanda[tanda.length - 1].confianza : Infinity;
     cola.lista = cola.lista.concat(
