@@ -84,7 +84,13 @@ export function descifrar(guardado) {
 // --- Cuentas ----------------------------------------------------------------
 
 const cuentas = () => A.leer(F_CUENTAS, []);
-const guardarCuentas = (l) => A.escribir(F_CUENTAS, l);
+// Todas las cuentas viven en UNA fila. Con la app de la compu y la publicada
+// contra la misma base hay dos escritores, y reescribir el arreglo entero desde
+// una lectura vieja le borra el cambio al otro: una contraseña nueva que vuelve
+// a la anterior, un "cerrar sesión en todos lados" que no cierra nada. Por eso
+// se manda la mutación y no el resultado — A.mutar la re-aplica sobre lo que
+// hay en la base si alguien escribió en el medio. Ver almacen.mjs.
+const mutarCuentas = (fn) => A.mutar(F_CUENTAS, fn, []);
 const normalizarMail = (m) => String(m || "").trim().toLowerCase();
 
 export const buscarCuenta = (id) => cuentas().find(c => c.id === id) || null;
@@ -147,7 +153,10 @@ export function registrar(mail, pass, { codigo = "", ip = "" } = {}) {
     v: 1,                              // versión de sesión, para desloguear todo
     creada: new Date().toISOString(),
   };
-  guardarCuentas([...cuentas(), cuenta]);
+  // El chequeo de mail repetido ya pasó, pero sobre la foto de este proceso: si
+  // la otra instancia registró el mismo mail entremedio, esto lo ve al
+  // re-aplicar y no crea el duplicado.
+  mutarCuentas(l => (l.some(x => x.email === cuenta.email) ? l : [...l, cuenta]));
   if (invitacion) consumirInvitacion(invitacion, cuenta);
   // Se cuentan las cuentas CREADAS, no los intentos fallidos: limitar los
   // errores dejaría afuera a alguien por equivocarse seis veces al tipear.
@@ -192,7 +201,10 @@ export function entrar(mail, pass, ip = "") {
 
 const F_INVITES = "invitaciones.json";
 const invitaciones = () => A.leer(F_INVITES, []);
-const guardarInvitaciones = (l) => A.escribir(F_INVITES, l);
+// Mismo motivo que las cuentas, y acá encima hay un contador (usos) y una baja
+// que tiene que quedar dada: una invitación revocada que vuelve a servir es la
+// única puerta de entrada a la app abriéndose sola.
+const mutarInvitaciones = (fn) => A.mutar(F_INVITES, fn, []);
 
 const hashCodigo = (c) => crypto.createHash("sha256").update(normalizarCodigo(c)).digest("hex");
 // Sin vocales: así no sale ninguna palabra fea por casualidad, y sin 0/O ni 1/I,
@@ -245,12 +257,17 @@ function validarInvitacion(codigo, email, ip) {
 }
 
 function consumirInvitacion(inv, cuenta) {
-  const lista = invitaciones();
-  const guardada = lista.find(i => i.hash === inv.hash);
-  if (!guardada) return;
-  guardada.usos++;
-  (guardada.usadaPor ||= []).push({ email: cuenta.email, cuando: new Date().toISOString() });
-  guardarInvitaciones(lista);
+  // El contador se suma sobre lo que hay en la base, no sobre lo que leímos: si
+  // dos personas usan el mismo código a la vez desde las dos instancias, sumar
+  // sobre la copia vieja deja el contador en 1 y el código se usa dos veces.
+  const usada = { email: cuenta.email, cuando: new Date().toISOString() };
+  mutarInvitaciones((lista) => {
+    const guardada = lista.find(i => i.hash === inv.hash);
+    if (!guardada) return lista;
+    guardada.usos++;
+    (guardada.usadaPor ||= []).push(usada);
+    return lista;
+  });
 }
 
 // Devuelve el código en claro UNA sola vez: después queda solo el hash y no hay
@@ -269,18 +286,20 @@ export function crearInvitacion(cuenta, { etiqueta = "", maxUsos = 1, dias = 14 
     creadaPor: cuenta.email,
     vence: dias > 0 ? new Date(Date.now() + dias * 24 * 3600e3).toISOString() : null,
   };
-  guardarInvitaciones([...invitaciones(), inv]);
+  mutarInvitaciones(l => (l.some(i => i.hash === inv.hash) ? l : [...l, inv]));
   return { codigo, invitacion: publicaInvitacion(inv) };
 }
 
 export function revocarInvitacion(cuenta, hash) {
   if (!esAdmin(cuenta)) throw new ErrorAuth("Solo el dueño puede dar de baja invitaciones.");
-  const lista = invitaciones();
-  const inv = lista.find(i => i.hash === hash);
+  const inv = invitaciones().find(i => i.hash === hash);
   if (!inv) throw new ErrorAuth("No existe esa invitación.");
-  inv.revocada = true;
-  guardarInvitaciones(lista);
-  return publicaInvitacion(inv);
+  mutarInvitaciones((lista) => {
+    const guardada = lista.find(i => i.hash === hash);
+    if (guardada) guardada.revocada = true;
+    return lista;
+  });
+  return publicaInvitacion({ ...inv, revocada: true });
 }
 
 // El hash entero no sale nunca a la web: alcanza con un pedazo para poder
@@ -318,22 +337,35 @@ export function cambiarPass(cuentaId, actual, nueva) {
   }
   // Sal nueva también: reusar la vieja deja pistas de que la clave cambió pero
   // el material derivado no arrancó de cero.
-  c.sal = crypto.randomBytes(16).toString("hex");
-  c.hash = hashear(String(nueva), c.sal);
-  // Cambiar la contraseña cierra las demás sesiones. Es lo que uno espera
-  // cuando la cambia porque sospecha que alguien más entró.
-  c.v = (c.v || 1) + 1;
-  guardarCuentas(l);
-  return c;
+  const sal = crypto.randomBytes(16).toString("hex");
+  const hash = hashear(String(nueva), sal);
+  // El número de versión se sube sobre el que hay EN LA BASE, no sobre el que
+  // leímos: si la otra instancia lo subió entremedio, sumarle uno al viejo da
+  // un número que ya se usó y las cookies que había que invalidar siguen
+  // valiendo. Cambiar la contraseña cierra las demás sesiones, que es lo que
+  // uno espera cuando la cambia porque sospecha que entró alguien más.
+  mutarCuentas((lista) => {
+    const x = lista.find(y => y.id === cuentaId);
+    if (x) { x.sal = sal; x.hash = hash; x.v = (x.v || 1) + 1; }
+    return lista;
+  });
+  return { ...c, sal, hash, v: (c.v || 1) + 1 };
 }
 
 export function cambiarKeyTmdb(cuentaId, key) {
-  const l = cuentas();
-  const c = l.find(x => x.id === cuentaId);
+  const c = buscarCuenta(cuentaId);
   if (!c) throw new ErrorAuth("No existe la cuenta.");
-  c.tmdbKey = key ? cifrar(String(key).trim()) : "";
-  guardarCuentas(l);
-  return c;
+  const cifrada = key ? cifrar(String(key).trim()) : "";
+  // Guardar la key pasa por una ida y vuelta a TMDB antes de llegar acá, así
+  // que entre la lectura y la escritura hay cientos de milisegundos: es la
+  // mutación con la ventana más ancha de todas, y la que más fácil se llevaba
+  // puesto un cambio de contraseña hecho del otro lado.
+  mutarCuentas((lista) => {
+    const x = lista.find(y => y.id === cuentaId);
+    if (x) x.tmdbKey = cifrada;
+    return lista;
+  });
+  return { ...c, tmdbKey: cifrada };
 }
 
 export const keyTmdbDe = (cuenta) => (cuenta?.tmdbKey ? descifrar(cuenta.tmdbKey) : "");
@@ -355,12 +387,18 @@ export function crearSesion(cuentaId) {
 // borrar, así que la cuenta lleva un número de versión: subirlo de uno deja
 // vieja a toda cookie emitida hasta ahora, esté en el celular que esté.
 export function cerrarTodasLasSesiones(cuentaId) {
-  const l = cuentas();
-  const c = l.find(x => x.id === cuentaId);
+  const c = buscarCuenta(cuentaId);
   if (!c) throw new ErrorAuth("No existe la cuenta.");
-  c.v = (c.v || 1) + 1;
-  guardarCuentas(l);
-  return c;
+  // Sobre el valor de la base y no sobre el leído: esto es lo que se toca
+  // cuando alguien cree que le agarraron la cuenta, y una versión que vuelve
+  // atrás deja viva la cookie que se quería matar.
+  let subido = (c.v || 1) + 1;
+  mutarCuentas((lista) => {
+    const x = lista.find(y => y.id === cuentaId);
+    if (x) { x.v = (x.v || 1) + 1; subido = x.v; }
+    return lista;
+  });
+  return { ...c, v: subido };
 }
 
 export function leerSesion(cookieHeader) {

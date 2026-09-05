@@ -648,13 +648,54 @@ iguales.
 `test-almacen.mjs` reproduce el caso con una transacción abierta a mano y falla
 si se saca la ventana.
 
-**Lo que queda sin cubrir, dicho claro:** si escribís *la misma* cosa en los dos
-lados dentro de la misma fracción de segundo, gana el último y el otro cambio se
-pierde. Se puede arreglar con un número de versión por clave, pero para una
-persona que no está en dos pantallas a la vez es complejidad sin caso de uso.
+#### Lo que se escribe entero se pisa entero
 
-Lo prueban `test-almacen.mjs` (16 chequeos sobre el almacén) y
+Refrescar arregla *enterarse*. No arregla *escribir*: `escribir()` manda el
+documento completo y sin condiciones, así que el último que llega gana y el
+cambio del otro desaparece sin error.
+
+Para una puntuación eso es un empate perdido y nada más. Para **`cuentas.json`
+es otra cosa**, porque ahí viven TODAS las cuentas en una sola fila y cada
+cambio la reescribe entera: cambiar la contraseña, guardar una API key, o
+«cerrar sesión en todos lados». Si una instancia la reescribe desde una lectura
+vieja, revierte lo que hizo la otra — y **volver atrás un cierre de sesión es
+desactivar una medida de seguridad en silencio**: la cookie que se quería matar
+sigue viva. Lo mismo con `invitaciones.json`: una invitación dada de baja que
+vuelve a servir es la única puerta de entrada a la app abriéndose sola. Y los
+usos de una invitación son un contador, que es el caso de manual.
+
+La ventana no es teórica: guardar una API key hace una ida y vuelta a TMDB
+*entre* la lectura y la escritura, o sea cientos de milisegundos con la copia
+vieja en la mano.
+
+Para esos documentos ya no se manda un valor sino una **función**, y se aplica
+sobre lo que hay en la base en ese momento. El `UPDATE` va condicionado a la
+fecha que se leyó; si no engancha, es que alguien escribió en el medio y se
+reintenta sobre lo nuevo. El número de versión de sesión se sube sobre **el de
+la base**, no sobre el que se leyó — sumarle uno a un número viejo da uno que
+ya se usó, y las cookies que había que invalidar siguen valiendo.
+
+La interfaz sigue siendo sincrónica: devuelve enseguida el valor optimista para
+poder contestar el request, y la confirmación viaja por la cola de escritura.
+
+Los perfiles se arreglan por el mismo camino y de paso cierran un agujero: el id
+(`papa`) es la clave del almacén y se elegía contra la lista de este proceso,
+que puede estar vieja. Dos cuentas creando un «Papá» a la vez terminaban
+**compartiendo las puntuaciones**. Ahora, si el id ya está tomado en la base, la
+entrada no se agrega: sin entrada, `usuarioDe()` no le autoriza ese perfil a esa
+cuenta. Queda un perfil que no se creó —se reintenta con otro nombre— en vez de
+dos personas escribiendo encima de la misma lista.
+
+**Lo que queda sin cubrir, dicho claro:** las puntuaciones y el estado de cada
+perfil siguen escribiéndose enteros. Si puntuás *la misma* película desde las
+dos pantallas en la misma fracción de segundo, gana la última. Es un empate que
+para una persona sola no existe, y llevarlo al esquema de arriba costaba
+reescribir todos los caminos de guardado a cambio de nada.
+
+Lo prueban `test-almacen.mjs` (20 chequeos sobre el almacén, incluida la
+escritura simultánea de dos instancias sobre `cuentas.json`) y
 `test-dos-instancias.mjs` (16, con dos servers de verdad contra la misma base).
+Los dos fallan si se sacan los arreglos: está verificado, no supuesto.
 
 ### Variables de entorno
 

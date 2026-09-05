@@ -89,13 +89,26 @@ export function crearUsuario(nombre, cuenta = null) {
   if (!A.existe(r.mapeo)) escribir(r.mapeo, {});
   const entrada = { id, nombre: (nombre || "").trim() || id };
   if (cuenta) entrada.cuenta = cuenta;
-  todos.push(entrada);
-  escribir(F_USUARIOS, todos);
+
+  // El id se eligió contra la lista que tenía este proceso, que con dos
+  // instancias puede estar vieja: si la otra creó un "papa" hace medio segundo,
+  // acá figura libre. Por eso la decisión final se toma contra lo que hay EN LA
+  // BASE, y si el id ya está tomado NO se agrega la entrada.
+  //
+  // Falla del lado seguro a propósito: sin entrada en usuarios.json, usuarioDe()
+  // no le autoriza ese perfil a esta cuenta, así que nadie termina leyendo y
+  // escribiendo las puntuaciones de otro. Los archivos de arriba tampoco se
+  // pisan, porque cada uno va sólo si no existía. Queda un perfil que no se
+  // creó — se vuelve a intentar con otro nombre — en vez de dos cuentas
+  // compartiendo datos sin saberlo.
+  A.mutar(F_USUARIOS, (lista) => (lista.some(u => u.id === id) ? lista : [...lista, entrada]), []);
   return id;
 }
 
 export function borrarUsuario(id) {
-  escribir(F_USUARIOS, todosLosUsuarios().filter(u => u.id !== id));
+  // Sacar por id es re-aplicable tal cual sobre lo que haya en la base, así que
+  // el borrado no se lleva puesto un perfil que la otra instancia agregó.
+  A.mutar(F_USUARIOS, (lista) => lista.filter(u => u.id !== id), []);
   A.borrarPrefijo(rutasDe(id).base);
 }
 

@@ -356,6 +356,81 @@ export function escribir(clave, valor) {
   return valor;
 }
 
+// --- Cambiar un documento sin pisar a la otra instancia -----------------------
+//
+// escribir() manda el valor entero y sin condiciones: el último que llega gana.
+// Con un solo proceso eso era correcto. Con dos deja de serlo para todo lo que
+// se lee-modifica-escribe, y hay una fila donde eso es grave: cuentas.json, que
+// tiene TODAS las cuentas juntas. Cambiar una contraseña, o "cerrar sesión en
+// todos lados", es levantar el arreglo entero, tocar un campo y devolverlo. Si
+// entremedio la otra instancia escribió, se lo lleva puesto — y volver atrás un
+// cierre de sesión es deshacer una medida de seguridad en silencio, sin error y
+// sin que quede rastro. Lo mismo con las invitaciones: una dada de baja vuelve a
+// servir. Y los usos de una invitación son un contador, que es el caso de libro.
+//
+// Acá no se manda un valor sino una FUNCIÓN, y se aplica sobre lo que hay en la
+// base en ese momento. Si alguien escribió en el medio, el UPDATE no engancha
+// —va condicionado a la fecha que se leyó— y se vuelve a intentar sobre lo
+// nuevo. La función tiene que poder correrse más de una vez sin efectos aparte.
+//
+// La interfaz sigue siendo sincrónica y devuelve enseguida el valor optimista,
+// para que quien la llamó pueda contestar el request sin esperar a la base.
+export function mutar(clave, fn, def) {
+  if (modo !== "postgres") {
+    const nuevo = fn(leer(clave, def));
+    escribir(clave, nuevo);
+    return nuevo;
+  }
+  // Lo que este proceso va a mostrar mientras la escritura viaja. Sobre una
+  // copia: si fn toca el objeto en el lugar, el de memoria queda a medio
+  // camino si el intento de abajo falla.
+  const optimista = fn(structuredClone(leer(clave, def)));
+  memoria.set(clave, optimista);
+  encolarTarea(() => aplicarConChequeo(clave, fn, def));
+  return optimista;
+}
+
+async function aplicarConChequeo(clave, fn, def) {
+  for (let intento = 1; intento <= 6; intento++) {
+    const { rows } = await pool.query(
+      "SELECT valor, actualizado::text AS sello FROM archivos WHERE clave = $1", [clave]);
+    const nuevo = fn(rows.length ? rows[0].valor : structuredClone(def));
+    const texto = JSON.stringify(nuevo);
+
+    // La condición es la fecha que acabamos de leer: si cambió, perdimos.
+    const r = rows.length
+      ? await pool.query(
+          "UPDATE archivos SET valor = $2, actualizado = now() " +
+          "WHERE clave = $1 AND actualizado::text = $3 " +
+          "RETURNING actualizado::text AS sello", [clave, texto, rows[0].sello])
+      : await pool.query(
+          "INSERT INTO archivos (clave, valor, actualizado) VALUES ($1, $2, now()) " +
+          "ON CONFLICT (clave) DO NOTHING " +
+          "RETURNING actualizado::text AS sello", [clave, texto]);
+
+    if (r.rowCount === 1) {
+      memoria.set(clave, nuevo);
+      aplicado.set(clave, r.rows[0].sello);
+      encolar("DELETE FROM borrados WHERE clave = $1", [clave]);
+      return;
+    }
+    // Perdimos la carrera: volvemos a leer y re-aplicamos sobre lo que quedó.
+  }
+
+  // Seis intentos seguidos perdidos no es contención, es algo roto. Lo que no
+  // se puede hacer es dejar en memoria el valor optimista, que ya sabemos que
+  // no es lo que dice la base: mejor mostrar la verdad ajena que una propia
+  // que no existe.
+  fallosDeEscritura++;
+  console.error("[almacen] no pude guardar " + clave + " sin pisar a la otra instancia");
+  const { rows } = await pool.query(
+    "SELECT valor, actualizado::text AS sello FROM archivos WHERE clave = $1", [clave]);
+  if (rows.length) {
+    memoria.set(clave, rows[0].valor);
+    aplicado.set(clave, rows[0].sello);
+  }
+}
+
 export function borrar(clave) {
   if (modo === "postgres") {
     memoria.delete(clave);
@@ -415,8 +490,12 @@ export function claves(prefijo = "") {
 // el orden en que se pidieron, o la app muestra un valor y la base guarda otro.
 
 function encolar(sql, params) {
+  encolarTarea(() => pool.query(sql, params));
+}
+
+function encolarTarea(tarea) {
   pendientes = pendientes
-    .then(() => pool.query(sql, params))
+    .then(tarea)
     .catch((e) => {
       fallosDeEscritura++;
       console.error("[almacen] no pude guardar:", e.message);

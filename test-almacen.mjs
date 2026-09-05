@@ -163,7 +163,61 @@ try {
   ok(otraVez.size === 0,
      "una clave que ya se aplicó no vuelve a contarse como cambio");
 
-  seccion("9. El cache de TMDB sigue andando");
+  seccion("9. Escribir de a dos no se lleva puesto el cambio del otro");
+
+  // El caso que importa es cuentas.json: TODAS las cuentas en una fila, y cada
+  // cambio la reescribe entera desde una lectura que puede estar vieja. Con
+  // escribir() el último gana y el otro cambio desaparece sin error. Acá se
+  // simula lo peor: las dos instancias leen, las dos modifican campos
+  // distintos, y recién ahí las dos escriben.
+
+  A.escribir("cuentas.json", [{ id: "u1", v: 1, tmdbKey: "", email: "a@b.c" }]);
+  await A.drenar();
+  await B.refrescar();
+
+  // A sube la versión de sesión ("cerrar sesión en todos lados").
+  A.mutar("cuentas.json", (l) => {
+    const c = l.find(x => x.id === "u1");
+    if (c) c.v = (c.v || 1) + 1;
+    return l;
+  }, []);
+
+  // B, sin haber visto eso, guarda una API key sobre SU copia vieja.
+  B.mutar("cuentas.json", (l) => {
+    const c = l.find(x => x.id === "u1");
+    if (c) c.tmdbKey = "cifrada-nueva";
+    return l;
+  }, []);
+
+  await A.drenar();
+  await B.drenar();
+  await A.refrescar();
+  await B.refrescar();
+
+  const finalA = A.leer("cuentas.json", [])[0];
+  ok(finalA.v === 2, "el cierre de sesión de A quedó (v=" + finalA.v + ", no volvió a 1)");
+  ok(finalA.tmdbKey === "cifrada-nueva", "y la key que guardó B también");
+
+  seccion("10. Un perfil con id tomado no se le agrega a la otra cuenta");
+
+  // Si el id ya existe en la base, crearUsuario NO agrega la entrada: sin
+  // entrada, usuarioDe() no le autoriza ese perfil a la cuenta, que es lo que
+  // evita que dos cuentas terminen escribiendo las puntuaciones de la misma.
+  A.escribir("usuarios.json", [{ id: "papa", nombre: "Papá", cuenta: "cuenta-A" }]);
+  await A.drenar();
+  await B.refrescar();
+
+  B.mutar("usuarios.json",
+    (l) => (l.some(u => u.id === "papa") ? l : [...l, { id: "papa", nombre: "Papá", cuenta: "cuenta-B" }]),
+    []);
+  await B.drenar();
+  await A.refrescar();
+
+  const lista = A.leer("usuarios.json", []);
+  ok(lista.length === 1, "no quedaron dos entradas con el mismo id");
+  ok(lista[0].cuenta === "cuenta-A", "y sigue siendo de la cuenta que lo creó primero");
+
+  seccion("11. El cache de TMDB sigue andando");
 
   A.cacheEscribir("ficha:movie:1", { titulo: "algo", peso: 1 });
   await new Promise(r => setTimeout(r, 300));
