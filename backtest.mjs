@@ -10,7 +10,11 @@ import * as M from "./motor.mjs";
 import * as D from "./datos.mjs";
 
 const usuario = process.argv[2] || D.listarUsuarios()[0]?.id;
-T.setKey(D.leer(D.DATA + "/config.json", {}).tmdbKey);
+// "config.json" es la CLAVE del almacén, no una ruta: leer() ya la resuelve
+// contra data/. Pasándole la ruta completa quedaba data/C:/.../data/config.json,
+// que no existe, y sin key fichas() devolvía cero: el backtest venía imprimiendo
+// NaN en vez de medir nada.
+T.setKey(process.env.TMDB_API_KEY?.trim() || D.leer("config.json", {}).tmdbKey);
 
 const puntuadas = D.cargar(usuario);
 if (!puntuadas.length) { console.log("Ese perfil no tiene puntuaciones."); process.exit(1); }

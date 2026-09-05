@@ -189,7 +189,15 @@ try {
   };
   const completa = await traer({ n: "60" });
   const filtrada = await traer({ n: "8", generos: "35" });   // 35 = Comedia
-  ok(completa.length > 10, `la lista completa trae varias (dio ${completa.length})`);
+
+  // La vara la pone él en Mis gustos, así que el test no puede pedir un número
+  // fijo de tarjetas: con la vara alta, quedarse corto es lo CORRECTO. Lo que sí
+  // tiene que valer siempre es que no baje de la vara y que devuelva algo.
+  const { gustos } = await (await fetch(BASE + "/api/gustos?u=nico")).json();
+  const vara = gustos.confianzaMinima ?? 0;
+  ok(completa.length > 0, `la lista completa trae algo (dio ${completa.length}, vara ${vara})`);
+  ok(completa.every(p => (p.confianza ?? 0) >= vara),
+     `nada baja de la vara que el puso (${vara})`);
 
   const estaban = new Set(completa.map(p => p.key));
   const deLaLista = filtrada.filter(p => estaban.has(p.key));
@@ -199,8 +207,19 @@ try {
      "todo lo que devuelve el filtro es del genero pedido");
   ok(sorpresas.length === 0,
      `ningun titulo aparece de la nada al filtrar (${sorpresas.length} sin avisar)`);
-  ok(deLaLista.length > 0,
-     `el filtro sube lo que ya estaba en la lista (${deLaLista.length} de ${filtrada.length})`);
+
+  // El invariante de verdad: si en la lista sin filtrar HABIA comedias, el filtro
+  // tiene que subir esas y no salir a buscar otras. Si no habia ninguna (pasa con
+  // la vara alta, donde el tope es puro anime), salir a buscar es lo correcto
+  // SIEMPRE QUE lo avise, que es lo que ya chequea `sorpresas`.
+  const comediasQueHabia = completa.filter(p => (p.generosIds || []).includes(35));
+  if (comediasQueHabia.length) {
+    ok(deLaLista.length > 0,
+       `el filtro sube lo que ya estaba en la lista (${deLaLista.length} de ${filtrada.length})`);
+  } else {
+    ok(filtrada.every(p => p.traidaPorFiltro),
+       `sin comedias en la lista, las que trae salen marcadas como buscadas (${filtrada.length})`);
+  }
 
   // Las que subieron tienen que venir de mas abajo: eso es reordenar, no inventar
   const posiciones = deLaLista.map(p => completa.findIndex(x => x.key === p.key));

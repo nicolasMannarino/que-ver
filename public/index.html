@@ -153,6 +153,9 @@
   }
   .notas button:hover { background: var(--acento); color: #1a1205; border-color: var(--acento); }
   .notas button.on { background: var(--acento); color: #1a1205; border-color: var(--acento); }
+  /* Las dos opciones de origen, antes de la tira de notas */
+  .origen { display: flex; gap: 7px; flex-wrap: wrap; }
+  .origen button { flex: 1 1 auto; }
 
   /* Biblioteca */
   .barra-filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
@@ -520,6 +523,12 @@
           <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
           <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
         </div>
+        <div class="fila" style="margin-top:8px; gap:8px; align-items:center">
+          <label class="interruptor"><input type="checkbox" id="usarMaxMin"> Que no dure más de</label>
+          <input type="number" id="maxMin" value="120" min="20" max="400" step="5" style="width:80px">
+          <span style="opacity:.7">minutos</span>
+          <span style="opacity:.5; font-size:12px">(en series se mide por capítulo)</span>
+        </div>
       </div>
       <div class="fila">
         <button class="primario" id="btnBuscar">Dame algo para ver</button>
@@ -648,6 +657,43 @@
            los giros finales, que sí te gustan (El Gran Truco 8, Los sospechosos de siempre 8).
            Una etiqueta por línea, en inglés, que es como las tiene TMDB.</p>
         <textarea id="gEvitar" style="width:100%"></textarea>
+      </div>
+
+      <div class="regla">
+        <h3>Qué tan exigente</h3>
+        <p>La vara. Debajo de esto <b>no te muestro nada</b>, aunque la lista quede corta.
+           Es la diferencia entre 12 buenas y 30 con relleno.<br>
+           <b>Estaba escrita y no la leía nadie:</b> el filtro era "mayor a 0" a mano, así que
+           entraba cualquier cosa que no fuera negativa. Medido pidiendo 60: de 30 tarjetas
+           que salían, <b>18 estaban abajo de 0.3</b>. Con la vara en 0.3 quedan 12, y las 12
+           son de la banda del 94%.<br>
+           Si te quedan pocas y querés ver más, bajala. Si te aparece relleno, subila.</p>
+        <div class="campos">
+          <span>No mostrar nada abajo de</span>
+          <input type="number" id="gConfMin" min="0" max="3" step="0.05">
+          <span>de confianza</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Drama hablado y nada más</h3>
+        <p>Dijiste que si es 100% hablada, sin un poquito de acción o alguna cosita más,
+           es difícil que te guste. Baja lo que <b>solo</b> es drama, romance, historia o
+           documental: sin acción, aventura, ciencia ficción, fantasía, suspenso, terror,
+           crimen ni misterio.<br>
+           <b>Crimen y misterio cuentan como movimiento</b>, así que las estafas y los giros
+           (Nueve Reinas, El secreto de sus ojos) no se tocan. <b>Comedia, animación y
+           familia tampoco</b>: una comedia no es un drama hablado, y esas dos ya tienen
+           su propia regla acá abajo.<br>
+           <b>Aviso honesto:</b> esto no sale de tus notas, sale de lo que dijiste. Sobre
+           tus 284 la regla toca 17 títulos y ahí empatás 6 a 6: frena El gran Gatsby (2),
+           Los Fabelman (2), Oppenheimer (5) y Así nos ven (6), pero también bajaría
+           En Busca de la Felicidad (10), Hombres de honor (10) y Chernobyl (8).
+           Si te está sacando cosas que querías ver, ponelo en 0.</p>
+        <div class="campos">
+          <span>Cuánto le resto</span>
+          <input type="number" id="gHablada" min="0" max="5" step="0.1">
+        </div>
       </div>
 
       <div class="regla">
@@ -784,6 +830,8 @@ async function cargarGustos() {
   $("#gTerminadas").checked = !!gustos.seriesTerminadas;
   $("#gEpisodios").value = gustos.maxEpisodios ?? 60;
   $("#gInfantil").value = gustos.penalizarInfantil ?? 0;
+  $("#gHablada").value = gustos.penalizarSoloHablada ?? 0;
+  $("#gConfMin").value = gustos.confianzaMinima ?? 0;
   $("#gEvitar").value = (gustos.evitarKeywords || []).join(SALTO);
   $("#gViendo").value = (gustos.viendoAhora || []).join(SALTO);
   $("#gYaVistas").value = (gustos.yaVistas || []).join(SALTO);
@@ -803,6 +851,8 @@ $("#btnGuardarGustos").onclick = async () => {
       seriesTerminadas: $("#gTerminadas").checked,
       maxEpisodios: $("#gEpisodios").value,
       penalizarInfantil: $("#gInfantil").value,
+      penalizarSoloHablada: $("#gHablada").value,
+      confianzaMinima: $("#gConfMin").value,
       evitarKeywords: $("#gEvitar").value,
       viendoAhora: $("#gViendo").value,
       yaVistas: $("#gYaVistas").value,
@@ -1040,9 +1090,21 @@ function tarjeta(p) {
   // Solo ofrezco abrirla si de verdad no entra
   if ((p.resumen || "").length < 170) verMas.classList.add("oculto");
 
-  // Panel de puntuar, oculto hasta que diga "Ya la vi"
+  // Panel de puntuar, oculto hasta que diga "Ya la vi".
+  // Pregunta el ORIGEN antes que la nota. Sin esto el marcador se anotaba como
+  // acierto propio cualquier película que él ya hubiera visto de antes: le
+  // mostraba una que ya conocía y ya le gustaba, él tocaba 9, y quedaba como si
+  // la app hubiera acertado algo. Es la única parte que de verdad lo sabe.
   const cajaPuntuar = document.createElement("div");
   cajaPuntuar.className = "puntuar oculto";
+  let porRecomendacion = null;
+
+  const preg = document.createElement("div");
+  preg.className = "tit";
+  preg.textContent = "¿La viste por esta recomendación, o ya la habías visto de antes?";
+  const opciones = document.createElement("div");
+  opciones.className = "origen";
+
   const tit = document.createElement("div");
   tit.className = "tit";
   tit.textContent = "¿Qué le pondrías? Queda guardada en tus puntuaciones.";
@@ -1051,7 +1113,33 @@ function tarjeta(p) {
   salir.textContent = "La vi pero no la puntúo";
   salir.style.marginTop = "8px";
   salir.onclick = async () => { await post("/api/feedback", { key: p.key, accion: "vista" }); sacar(); };
-  cajaPuntuar.append(tit, tiraDeNotas(p, null, () => { refrescar(); sacar(); }), salir);
+
+  const paso2 = document.createElement("div");
+  paso2.className = "oculto";
+  // El origen viaja con el puntaje: el server solo cuenta para el marcador las
+  // que él marcó como vistas POR la recomendación.
+  paso2.append(tit, tiraDeNotas(p, null, () => { refrescar(); sacar(); },
+                                () => ({ porRecomendacion })), salir);
+
+  const elegirOrigen = (valor) => {
+    porRecomendacion = valor;
+    preg.classList.add("oculto");
+    opciones.classList.add("oculto");
+    paso2.classList.remove("oculto");
+  };
+  const opcion = (txt, valor, titulo) => {
+    const b = document.createElement("button");
+    b.className = "chico";
+    b.textContent = txt;
+    b.title = titulo;
+    b.onclick = () => elegirOrigen(valor);
+    return b;
+  };
+  opciones.append(
+    opcion("La vi por acá", true, "Cuenta para el marcador de aciertos."),
+    opcion("Ya la había visto", false, "Se guarda tu nota, pero no se la anoto como acierto: no la viste por esto."),
+  );
+  cajaPuntuar.append(preg, opciones, paso2);
 
   const acc = document.createElement("div");
   acc.className = "acciones";
@@ -1085,10 +1173,11 @@ async function buscar(mas) {
     if (generosElegidos.size) q.set("generos", [...generosElegidos].join(","));
     if (generosVetados.size) q.set("excluir", [...generosVetados].join(","));
     if ($("#sinAnimacion").checked) q.set("sinAnimacion", "1");
+    if ($("#usarMaxMin").checked) q.set("maxMin", $("#maxMin").value || "120");
     if ($("#soloNuevas").checked) q.set("soloNuevas", "1");
     if (!$("#porConfianza").checked) q.set("porConfianza", "0");
     if (semillaActiva) q.set("semilla", semillaActiva.key);
-    const { lista } = await api("/api/recomendaciones?" + q);
+    const { lista, diagnostico } = await api("/api/recomendaciones?" + q);
     if (!mas) $("#resultados").innerHTML = "";
     for (const p of lista) {
       const el = tarjeta(p);
@@ -1106,8 +1195,24 @@ async function buscar(mas) {
     // en pantalla y parecía que el botón estaba roto.
     const vacio = lista.length === 0;
     $("#vacioRec").classList.toggle("oculto", !vacio);
-    $("#vacioRec").textContent = "Con estos filtros ya te ofrecí todo lo que encontré. "
-      + "Sacá algún filtro, o bajá la calidad mínima en Mis gustos.";
+    // Vacío no alcanza: hay que decir QUÉ lo dejó vacío y cuánto hay que mover la
+    // vara. "No encontré nada" obliga a adivinar entre bajar la vara, sacar un
+    // filtro o cambiar el preset.
+    if (vacio) {
+      const d = diagnostico;
+      if (d && d.rechazadas > 0 && d.mejorRechazada !== null) {
+        $("#vacioRec").textContent =
+          "Encontré " + d.rechazadas + ", pero ninguna llega a tu vara de " + d.vara
+          + ": la mejor da " + d.mejorRechazada + ". Poniendo «Qué tan exigente» en "
+          + d.varaParaOcho + " te muestro unas " + d.cuantasParaOcho
+          + " — o sacá algún filtro: con «Sin animación» te quedás casi sin nada, "
+          + "porque tu banda más alta es anime.";
+      } else {
+        $("#vacioRec").textContent = "Con estos filtros ya te ofrecí todo lo que pasa tu vara. "
+          + "Prefiero quedarme corto antes que rellenar. Si querés ver más, bajá "
+          + "«Qué tan exigente» en Mis gustos — o sacá algún filtro.";
+      }
+    }
     $("#btnMas").classList.remove("oculto");
   } catch (e) {
     $("#errBuscar").textContent = e.message;
@@ -1151,8 +1256,15 @@ async function cargarAcierto() {
   if (!d || d.total < 3) {
     b.classList.toggle("oculto", !r.pendientes);
     if (r.pendientes) {
-      b.textContent = "Todavía no puedo medirme: te recomendé " + r.pendientes
-        + " y no puntuaste ninguna. Cuando veas alguna y le pongas nota, acá te digo si te acerté.";
+      // Decía "no puntuaste ninguna" aunque hubiera puntuado: solo miraba el
+      // tramo de 70%+ y con menos de 3 daba por hecho que no había nada.
+      const hechas = r.todo ? r.todo.total : 0;
+      b.textContent = hechas
+        ? "Vas " + hechas + " de las que te recomendé (" + r.todo.gustaron
+          + " te gustaron). Con 3 ya te puedo dar el número; te quedan "
+          + r.pendientes + " ofrecidas sin puntuar."
+        : "Todavía no puedo medirme: te recomendé " + r.pendientes
+          + " y no puntuaste ninguna. Cuando veas alguna y le pongas nota, acá te digo si te acerté.";
     }
     return;
   }
@@ -1165,6 +1277,15 @@ async function cargarAcierto() {
     + "Yo te había prometido " + d.prometido + "%"
     + (Math.abs(dif) <= 8 ? " — le pega." : dif < 0 ? " — prometo de más." : " — prometo de menos.");
   b.appendChild(t);
+  // Lo que se dejó afuera, dicho en voz alta: un marcador que no cuenta lo que
+  // descartó no se puede auditar.
+  if (r.yaLasHabiaVisto) {
+    const nota = document.createElement("span");
+    nota.style.cssText = "display:block; margin-top:6px; opacity:.75";
+    nota.textContent = "No cuento otras " + r.yaLasHabiaVisto
+      + " que puntuaste pero ya habías visto de antes: esas no las gané yo.";
+    b.appendChild(nota);
+  }
 }
 
 /* ---------- "Más como esta" ---------- */
@@ -1317,12 +1438,20 @@ async function cargarBiblioteca() {
     sel.className = "selEtiqueta";
     const pintarSelect = () => {
       sel.innerHTML = "";
-      const base = ["de chico", "lenta", "mal llevada", "predecible", "no la entendí"];
+      // "no tener en cuenta" va primera y es distinta de las demás: no baja lo que se
+      // le parece, saca el título del perfil entero. Es la salida para las notas que
+      // no representan su gusto de hoy (las 30 animadas de Disney/Pixar le pusieron
+      // al género Animación un peso de 2.882 y le coparon las recomendaciones).
+      const base = ["no tener en cuenta", "de chico", "lenta", "mal llevada", "predecible", "no la entendí"];
       const usadas = (VOCABULARIO || []).map(v => v.motivo);
       const opciones = [...new Set([...base, ...usadas])].filter(m => !(x.motivos || []).includes(m));
       for (const [val, txt] of [["", "＋ etiqueta"], ...opciones.map(o => [o, o]), ["__otra", "otra…"]]) {
         const o = document.createElement("option");
         o.value = val; o.textContent = txt;
+        if (val === "no tener en cuenta") {
+          o.textContent = "no tener en cuenta (sacar del perfil)";
+          o.title = "Tu nota queda, pero deja de opinar sobre lo que te recomiendo.";
+        }
         sel.appendChild(o);
       }
       sel.value = "";

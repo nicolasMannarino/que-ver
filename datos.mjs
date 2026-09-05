@@ -30,6 +30,14 @@ export const PREFS_POR_DEFECTO = {
   penalizarInfantil: 2.2,
   penalizarAnimacionOccidental: 1.6,
   penalizarFamilia: 1.4,
+  // Apagada por defecto. La escribí en 1.2 porque él dijo "si es 100% hablada sin
+  // un poquito de accion es dificil que me guste", pero medida contra sus 285 es
+  // una moneda: toca 17 titulos y se lleva 6 que puntuo 8+ contra 6 que puntuo 6-.
+  // Y el propio interesado la desarmo con dos contraejemplos: Tetris (7) y Primal
+  // Fear (8) son puro dialogo y le encantaron. El genero no captura esta dimension
+  // — ya estaba medido: correlaciona -0.001 con sus notas. Queda la perilla por si
+  // alguien la quiere, en 0 por defecto.
+  penalizarSoloHablada: 0,
   penalizarMotivos: 1.5,
   confianzaMinima: 0.3,
   evitarKeywords: ["time loop", "nonlinear timeline", "amnesia", "memory loss"],

@@ -53,6 +53,11 @@ for (const u of D.todosLosUsuarios()) D.migrarLentas(u.id);  // marca 🐢 vieja
 
 const perfiles = new Map();                    // userId -> { perfil, vistas }
 const colas = new Map();                       // userId -> { firma, lista, servidas }
+// Qué dejó afuera la vara en la última búsqueda de cada uno. Sirve para que,
+// cuando la lista sale vacía, la pantalla pueda decir CUÁNTO hay que bajarla en
+// vez de un "no encontré nada" que no ayuda a decidir. Va en un Map de módulo
+// como perfiles y colas: el server es de una sola instancia a propósito.
+const diagnosticos = new Map();                // userId -> { vara, rechazadas, mejorRechazada }
 // El progreso de la importación, POR PERFIL. Era una sola variable global, y
 // con dos personas importando al mismo tiempo cada una veía la barra de la otra
 // — incluyendo los títulos que no se pudieron resolver, que son de su lista.
@@ -189,7 +194,7 @@ const PRESETS = {
   peli:    { soloPeli: true, etiqueta: "Película" },
 };
 
-function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGeneros = null) {
+function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGeneros = null, maxMin = null) {
   const p = PRESETS[presetId] || null;
   const palabras = SIN_ACENTOS(texto).split(/\s+/).filter(w => w.length > 3);
   const salida = [];
@@ -201,6 +206,10 @@ function aplicarAnimo(cands, presetId, texto, generosPedidos = null, excluirGene
     const generosDe = (c.detalle?.d?.genres || []).map(g => g.id);
     // Filtros que él eligió a mano: mandan sobre el ánimo
     if (excluirGeneros?.length && generosDe.some(g => excluirGeneros.includes(g))) continue;
+    // Tope de duración. En series es el largo del capítulo, que es lo que importa
+    // para "tengo hora y media". Si TMDB no sabe cuánto dura, la dejo pasar: sacar
+    // por falta de dato es peor que mostrarla con el número en blanco.
+    if (maxMin && c.detalle?.dur && c.detalle.dur > maxMin) continue;
     if (generosPedidos?.length && !generosDe.some(g => generosPedidos.includes(g))) continue;
     if (p || palabras.length) {
       const gen = (c.detalle?.d?.genres || []).map(g => g.id);
@@ -295,7 +304,7 @@ const paraElFront = (c, perfil) => ({
   probable: M.probabilidad(perfil.curva, c.confianza ?? 0),
 });
 
-async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null }) {
+async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null, maxMin = null }) {
   const p = await perfilDe(id);
   if (!p) throw new Error("Todavía no cargaste tus puntuaciones.");
   const { perfil, vistas } = p;
@@ -316,9 +325,9 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
 
   const traer = async (ex, paginas) => {
     const [vecinos, catalogo] = await Promise.all([
-      M.candidatos(perfil, { semillas: paginas > 1 ? 45 : 28, excluir: ex, generos: generosParaSemillas, tipo }),
+      M.candidatos(perfil, { semillas: paginas > 1 ? 45 : 28, excluir: ex, generos: generosParaSemillas, tipo, excluirGeneros }),
       M.candidatosPorPerfil(perfil, {
-        excluir: ex, generos: generosParaSemillas, anioMinimo: P?.anioMinimo, paginas, tipo,
+        excluir: ex, generos: generosParaSemillas, anioMinimo: P?.anioMinimo, paginas, tipo, excluirGeneros, maxMin, votosMinimos: P?.votosMinimos,
       }),
     ]);
     const mapa = new Map(catalogo.map(c => [c.key, c]));
@@ -337,7 +346,18 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
       notaMinimaViejas: soloNuevas ? 99 : Math.min(prefsEfectivas.notaMinimaViejas ?? 8, 7.4),
     };
   }
-  const rondasYaOfrecidas = Math.floor(estado.mostradas.length / 24);
+  // Su vara de exigencia. Es la que decide si prefiere 12 buenas o 30 con relleno.
+  const piso = prefsEfectivas?.confianzaMinima ?? 0;
+  // Hasta dónde ya cavamos en el catálogo. ANTES esto salía de mostradas.length/24,
+  // y ahí estaba el problema de "mostrame otras tarda muchísimo": si una ronda no
+  // devolvía nada —cosa habitual desde que hay vara— mostradas no crecía, el número
+  // no avanzaba, y el clic siguiente volvía a pedirle a TMDB EXACTAMENTE las mismas
+  // páginas. Con el cache frío son ~100 discover más 135 fichas, cada vez, para
+  // devolver cero otra vez. Ahora el contador se guarda y siempre avanza, así que
+  // cada clic mira páginas nuevas: más rápido y además trae cosas distintas.
+  // TMDB corta en la página 500; al llegar cerca del fondo vuelve a empezar, que
+  // para entonces está todo cacheado y es instantáneo.
+  const arranque = ((estado.profundidadCatalogo || 0) * 4 > 400) ? 0 : (estado.profundidadCatalogo || 0);
 
   // Rasgos del título semilla, para medir parecido directo contra él
   let rasgosSemilla = null;
@@ -346,6 +366,12 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     const ds = await T.details(k, +sid).catch(() => null);
     if (ds) rasgosSemilla = M.rasgos(ds, k).features;
   }
+
+  // Lo que la vara va dejando afuera, por clave para no contar dos veces la misma
+  // cuando cae en dos rondas distintas. Con los puntajes guardados se puede
+  // responder la pregunta que importa: "¿en cuánto tengo que poner la vara para
+  // ver 8?" — y no solo "no hay nada".
+  const rechazadas = new Map();
 
   // Puntúa un lote de candidatos y devuelve los que valen la pena mostrar
   const evaluar = async (cands) => {
@@ -356,9 +382,12 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     const deSemilla = cands.filter(c => !c.origen).slice(0, 75);
     const dePerfil = cands.filter(c => c.origen).slice(0, 60);
     const conDetalle = await enriquecer([...deSemilla, ...dePerfil]);
-    const utiles = M.filtrar(conDetalle, perfil, prefsEfectivas);
+    let utiles = M.filtrar(conDetalle, perfil, prefsEfectivas);
+    // Y fuera las que son la 2 o la 3 de una saga que él no empezó.
+    const huerfanas = await M.secuelasHuerfanas(utiles, perfil);
+    if (huerfanas.size) utiles = utiles.filter(c => !huerfanas.has(c.key));
     const lista = M.puntuar(
-      aplicarAnimo(utiles, preset, texto, generosPedidos, excluirGeneros),
+      aplicarAnimo(utiles, preset, texto, generosPedidos, excluirGeneros, maxMin),
       perfil, { prefs: prefsEfectivas });
     // Con semilla, la confianza es el parecido con ESA película, no la afinidad
     // con el promedio de su gusto. Si no, el vecindario de Nueve reinas quedaba
@@ -369,7 +398,16 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
         c.confianza = par * 6;                 // 0.17 de Jaccard ya es mucho parecido
       }
     }
-    return lista.filter(c => (c.confianza ?? 0) >= 0);
+    // El piso lo pone él, no yo. `confianzaMinima` estaba declarada en las
+    // preferencias por defecto desde el principio y NO LA LEÍA NADIE: el filtro
+    // era ">= 0" a mano, así que entraba cualquier cosa que no fuera negativa.
+    // Medido sobre un pedido de 60: de 30 tarjetas que salían, 18 estaban abajo
+    // de 0.3 — relleno con el que la lista se veía llena y no servía.
+    for (const c of lista) {
+      const cf = c.confianza ?? 0;
+      if (cf < piso) rechazadas.set(c.key, cf);
+    }
+    return lista.filter(c => (c.confianza ?? 0) >= piso);
   };
 
   // Cava por niveles hasta juntar suficientes CON CONFIANZA, no suficientes
@@ -393,12 +431,23 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   sumar(await evaluar(await traer(excl, 1)));
   rr.marca("ronda1");
   if (juntadas.size < n) { sumar(await evaluar(await traer(excl, 3))); rr.marca("ronda2"); }
-  for (let salto = 0; salto < 4 && juntadas.size < n; salto++) {
+  // Cava hasta juntar n que PASEN LA VARA. Antes cortaba al llegar a n candidatos
+  // cualesquiera: se llenaba de relleno de 0.01 y dejaba de buscar justo cuando
+  // todavía había buenas más adentro del catálogo. Por eso se repetían siempre las
+  // mismas: no es que no hubiera más, es que dejaba de cavar.
+  // Presupuesto de tiempo, no de vueltas. Cada salto son 10 consultas a TMDB más
+  // hasta 60 fichas: con el cache frío, diez saltos medían 21 SEGUNDOS de espera
+  // mirando un botón. Ahora corta a los 6 y, como la profundidad queda guardada,
+  // el clic siguiente sigue desde donde dejó en vez de empezar de nuevo.
+  const limite = Date.now() + 6000;
+  let cavados = 0;
+  for (let salto = 0; salto < 10 && juntadas.size < n && Date.now() < limite; salto++, cavados++) {
     sumar(await evaluar(await M.candidatosAmplios(perfil, {
       excluir: excl, generos: generosParaSemillas, anioMinimo: prefsEfectivas?.anioMinimo, tipo,
-      desde: 1 + (rondasYaOfrecidas + salto) * 4, paginas: 5,
+      desde: 1 + (arranque + salto) * 4, paginas: 5, excluirGeneros, maxMin, votosMinimos: prefsEfectivas?.votosMinimos,
     })));
   }
+  estado.profundidadCatalogo = arranque + cavados;
   rr.marca("catalogo");
   const conFe = [...juntadas.values()];
   const ordenada = porConfianza
@@ -418,6 +467,16 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   }
   guardarEstado(id, estado);
   rr.fin(`(${juntadas.size} candidatos)`);
+  const fuera = [...rechazadas.values()].sort((a, b) => b - a);
+  // La vara a la que aparecerían 8. Si no hay ni 8 abajo, la de la última que hay.
+  const paraVer = (k) => (fuera.length ? +Math.max(0, fuera[Math.min(k, fuera.length) - 1]).toFixed(2) : null);
+  diagnosticos.set(id, {
+    vara: piso,
+    rechazadas: fuera.length,
+    mejorRechazada: fuera.length ? +fuera[0].toFixed(2) : null,
+    varaParaOcho: paraVer(8),
+    cuantasParaOcho: Math.min(8, fuera.length),
+  });
   return salida;
 }
 
@@ -433,6 +492,9 @@ async function recomendarEnOrden(id, opciones) {
   if (nueva) {
     const e = estadoDe(id);
     e.mostradas = [];
+    // Una búsqueda nueva vuelve a empezar también la excavación: "Dame algo para
+    // ver" pone todo en juego otra vez, y esas primeras páginas ya están en cache.
+    e.profundidadCatalogo = 0;
     guardarEstado(id, e);
     colas.delete(id);
   }
@@ -736,6 +798,7 @@ async function manejar(req, res, url, cuenta) {
         generos: (url.searchParams.get("generos") || "").split(",").map(Number).filter(Boolean),
         excluir: (url.searchParams.get("excluir") || "").split(",").map(Number).filter(Boolean),
         sinAnimacion: url.searchParams.get("sinAnimacion") === "1",
+        maxMin: parseInt(url.searchParams.get("maxMin"), 10) || null,
         soloNuevas: url.searchParams.get("soloNuevas") === "1",
         porConfianza: url.searchParams.get("porConfianza") !== "0",
         semilla: url.searchParams.get("semilla") || null,
@@ -744,7 +807,9 @@ async function manejar(req, res, url, cuenta) {
       cron.fin(`-> ${lista.length} tarjetas` +
                (url.searchParams.get("generos") ? ` (genero ${url.searchParams.get("generos")})` : "") +
                (url.searchParams.get("nueva") === "1" ? " [nueva]" : " [otras]"));
-      return json(res, 200, { lista });
+      // El diagnóstico viaja siempre: si la lista sale vacía, la pantalla tiene
+      // que poder decir cuánto hay que bajar la vara, no solo que no hay nada.
+      return json(res, 200, { lista, diagnostico: diagnosticos.get(usuarioDe(url, cuenta)) || null });
     }
 
     // ---- puntuar, desde la tarjeta o desde la biblioteca ----
@@ -758,16 +823,29 @@ async function manejar(req, res, url, cuenta) {
       const e = estadoDe(id);
       e.vistas = e.vistas.filter(k => k !== item.key);
       e.descartadas = e.descartadas.filter(k => k !== item.key);
-      // Si se la había recomendado, ahora sé si le acerté
+      // Si se la había recomendado, ahora sé si le acerté — pero SOLO si la vio
+      // por eso. Puntuar algo que ya había visto de antes no dice nada sobre si
+      // la app acierta: le mostraba una que él ya conocía y ya le gustaba, tocaba
+      // 9, y quedaba anotado como gol propio. El sesgo iba siempre a favor.
+      // Los otros caminos hacia acá (la pestaña Puntuar, "+ Agregar", editar una
+      // nota vieja) no mandan la marca, así que ninguno cuenta: la pestaña
+      // Puntuar es justamente una lista de cosas que ya vio.
       const pred = e.predicciones?.[item.key];
       if (pred && !pred.resuelta) {
-        e.aciertos = e.aciertos || [];
-        e.aciertos.push({
-          titulo: pred.titulo, prometido: pred.prob,
-          nota: guardada.rating, acerto: guardada.rating >= 7,
-          fecha: new Date().toISOString(),
-        });
         pred.resuelta = true;
+        if (item.porRecomendacion === true) {
+          e.aciertos = e.aciertos || [];
+          e.aciertos.push({
+            titulo: pred.titulo, prometido: pred.prob,
+            nota: guardada.rating, acerto: guardada.rating >= 7,
+            fecha: new Date().toISOString(),
+          });
+        } else {
+          // Queda resuelta para que no siga contando como pendiente, pero fuera
+          // del marcador. Se cuentan aparte para poder decir cuántas se dejaron
+          // afuera y por qué.
+          pred.yaLaHabiaVisto = true;
+        }
       }
       guardarEstado(id, e);
       invalidar(id);
@@ -825,6 +903,9 @@ async function manejar(req, res, url, cuenta) {
         todo: resumen(todos), sobre70: resumen(altos),
         ultimos: todos.slice(-12).reverse(),
         pendientes: Object.values(e.predicciones || {}).filter(p => !p.resuelta).length,
+        // Las que puntuó pero YA había visto: quedan fuera del marcador a
+        // propósito. Se informan para que el número de arriba se pueda auditar.
+        yaLasHabiaVisto: Object.values(e.predicciones || {}).filter(p => p.yaLaHabiaVisto).length,
       });
     }
 
@@ -903,6 +984,8 @@ async function manejar(req, res, url, cuenta) {
         penalizarInfantil: num(nuevo.penalizarInfantil, actual.penalizarInfantil),
         penalizarAnimacionOccidental: num(nuevo.penalizarAnimacionOccidental, actual.penalizarAnimacionOccidental),
         penalizarFamilia: num(nuevo.penalizarFamilia, actual.penalizarFamilia),
+        penalizarSoloHablada: num(nuevo.penalizarSoloHablada, actual.penalizarSoloHablada),
+        confianzaMinima: num(nuevo.confianzaMinima, actual.confianzaMinima),
         evitarKeywords: lineas(nuevo.evitarKeywords),
         viendoAhora: lineas(nuevo.viendoAhora),
         yaVistas: lineas(nuevo.yaVistas),

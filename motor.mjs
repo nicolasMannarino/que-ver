@@ -159,7 +159,22 @@ export async function fichas(items, onProgress) {
 // Motivos que marcan "esto lo vi en otra época de mi vida"
 const NOSTALGIA = new Set(["de chico", "de chica", "de pibe", "nostalgia", "de niño"]);
 
-export function perfil(vistas) {
+// "Esta nota no me representa": el título sale del perfil ENTERO. No pesa, no es
+// vecino y no puede ser semilla. La nota queda en su lista — Toy Story 10 es cierto
+// — pero deja de opinar sobre lo que se le ofrece hoy.
+//
+// Hace falta porque "de chico" (que pesa 0.35) no alcanzaba: de sus 30 animadas no
+// japonesas, 12 no estaban etiquetadas y pesaban completo. Entre las 37 animadas
+// promedian 8.24 contra su media de 7.15, y el género Animación terminó con peso
+// 2.882 — uno de los rasgos más fuertes de todo su perfil. Con la vara alta, el
+// 100% de lo que pasaba era animado, y destildar "Sin animación" lo dejaba en cero.
+const NO_CUENTA = new Set(["no cuenta", "no tener en cuenta", "no me representa"]);
+export const noCuenta = (v) => (v.motivos || []).some(x => NO_CUENTA.has(x));
+
+export function perfil(todas) {
+  // Lo marcado "no tener en cuenta" se va antes de calcular nada: si quedara para
+  // la media o el desvío seguiría moviendo el z-score de todo lo demás.
+  const vistas = todas.filter(v => !noCuenta(v));
   const notas = vistas.map(v => v.rating);
   const media = notas.reduce((a, b) => a + b, 0) / (notas.length || 1);
   const desvio = Math.sqrt(notas.reduce((a, b) => a + (b - media) ** 2, 0) / (notas.length || 1)) || 1;
@@ -278,6 +293,32 @@ export function afinidadVecinos(p, features, k = 20, devolverMasParecida = false
   return top.reduce((s, x) => s + x.jac * x.w, 0) / peso;
 }
 
+// Ofrecerle la 2 de una saga que no empezó es ofrecerle algo que no puede ver:
+// él lo dijo viendo Animales Fantásticos 2 y 3 en la lista, sin la 1 por ningún
+// lado. Devuelve el set de ids que NO son la primera de su colección, para las
+// colecciones de las que él no puntuó nada. Va aparte de filtrar() porque necesita
+// pedirle a TMDB las colecciones, y filtrar() es sincrónico.
+export async function secuelasHuerfanas(cands, p) {
+  const cols = new Map();          // coleccion -> [candidatos con esa coleccion]
+  for (const c of cands) {
+    const col = c.detalle?.coleccion;
+    if (!col || p.colecciones.has(col)) continue;   // si ya vio algo de la saga, filtrar() ya la sacó
+    if (!cols.has(col)) cols.set(col, []);
+    cols.get(col).push(c);
+  }
+  const fuera = new Set();
+  await T.pool([...cols.keys()], 6, async (col) => {
+    const d = await T.coleccion(col);
+    const partes = (d?.parts || [])
+      .filter(x => x.release_date)
+      .sort((a, b) => a.release_date.localeCompare(b.release_date));
+    const primera = partes[0]?.id;
+    if (!primera) return;
+    for (const c of cols.get(col)) if (c.tmdbId !== primera) fuera.add(c.key);
+  });
+  return fuera;
+}
+
 // Saca lo que no tiene sentido ofrecerle, aunque puntúe alto
 export function filtrar(cands, p, prefs = null) {
   const hoy = new Date().toISOString().slice(0, 10);
@@ -330,7 +371,7 @@ export function diversificar(lista, n, maxPorGenero = 3, maxPorRincon = 2) {
 }
 
 // --- 3. Candidatos: salen de las pelis que le gustaron, no de la nada ---
-export async function candidatos(p, { semillas = 24, excluir = new Set(), generos = null, tipo = null } = {}) {
+export async function candidatos(p, { semillas = 24, excluir = new Set(), generos = null, tipo = null, excluirGeneros = null } = {}) {
   // Si pidió un ánimo, las semillas salen de SUS pelis de ese palo. Sin esto,
   // "tensión" arrancaba de Los Simpson y Air Bud y no había con qué arreglarlo:
   // el vecindario Disney/sitcom es mucho más denso en TMDB que el de Chernobyl.
@@ -346,6 +387,16 @@ export async function candidatos(p, { semillas = 24, excluir = new Set(), genero
     const delPalo = base.filter(s =>
       (s.features || []).some(f => f.startsWith("gen:") && ids.has(+f.slice(4))));
     if (delPalo.length >= 4) base = delPalo;
+  }
+  // Y lo que EXCLUYÓ tampoco puede sembrar. Los vecinos de una animada son
+  // animadas: sembrar con ellas y tirarlas después es gastar el presupuesto en
+  // candidatos que ya sabemos que no van. Es el mismo arreglo que ya tenían el
+  // tipo y el género pedido; a la exclusión nunca se lo habían hecho.
+  if (excluirGeneros?.length) {
+    const veto = new Set(excluirGeneros);
+    const limpias = base.filter(s =>
+      !(s.features || []).some(f => f.startsWith("gen:") && veto.has(+f.slice(4))));
+    if (limpias.length >= 3) base = limpias;
   }
   const seeds = base.slice(0, semillas);
   const mapa = new Map();
@@ -388,7 +439,7 @@ export async function candidatos(p, { semillas = 24, excluir = new Set(), genero
 // `similar`/`recommendations` de TMDB son co-visitas: devuelven la secuela y la
 // taquillera del mismo palo. Por eso Chernobyl o Nueve reinas no producían nada.
 // Acá salgo a buscar por los directores y las keywords que más pesan en su perfil.
-export async function candidatosPorPerfil(p, { excluir = new Set(), generos = null, anioMinimo = null, paginas = 1, tipo = null } = {}) {
+export async function candidatosPorPerfil(p, { excluir = new Set(), generos = null, anioMinimo = null, paginas = 1, tipo = null, excluirGeneros = null, maxMin = null, votosMinimos = null } = {}) {
   const top = (prefijo, n) => [...p.score.entries()]
     .filter(([f, v]) => f.startsWith(prefijo) && v > 0)
     .sort((a, b) => b[1] - a[1]).slice(0, n)
@@ -414,9 +465,20 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
     }
   };
 
-  const comun = { sort_by: "vote_count.desc", "vote_count.gte": 150 };
+  // El piso de votos va A LA FUENTE. Aplicado al final, subirlo no traía películas
+  // más conocidas: filtraba las 460 obscuras que ya habían venido y dejaba 2. Acá
+  // TMDB devuelve directamente las que lo cumplen, así que subir el piso cambia
+  // QUÉ SE BUSCA en vez de solo recortar el resultado.
+  const piso = Math.max(150, votosMinimos || 0);
+  const comun = { sort_by: "vote_count.desc", "vote_count.gte": piso };
   if (anioMinimo) comun["primary_release_date.gte"] = anioMinimo + "-01-01";
   if (generos?.length) comun.with_genres = generos.join("|");
+  // TMDB filtra la exclusión del lado del servidor: así las páginas que vuelven
+  // ya vienen sin lo vetado, en vez de traer 20 animadas y quedarnos con cero.
+  if (excluirGeneros?.length) comun.without_genres = excluirGeneros.join(",");
+  // El tope de duración también va a la fuente: TMDB sabe filtrarlo y así no se
+  // gasta el presupuesto trayendo epopeyas de tres horas para descartarlas.
+  if (maxMin) comun["with_runtime.lte"] = String(maxMin);
 
   // Otras que DIRIGIÓ. Ojo: el with_crew de /discover matchea cualquier rol,
   // así que devolvía películas donde el tipo solo figuraba como productor.
@@ -424,9 +486,10 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
     const [creditos, quien] = await Promise.all([T.creditosPersona(id), T.persona(id)]);
     const dirigidas = (creditos?.crew || [])
       .filter(c => c.job === "Director")
-      .filter(c => (c.vote_count || 0) >= 120)
+      .filter(c => (c.vote_count || 0) >= Math.max(120, votosMinimos || 0))
       .filter(c => !anioMinimo || (c.release_date || "") >= anioMinimo + "-01-01")
       .filter(c => !generos?.length || (c.genre_ids || []).some(g => generos.includes(g)))
+      .filter(c => !excluirGeneros?.length || !(c.genre_ids || []).some(g => excluirGeneros.includes(g)))
       .sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
     agregar({ results: dirigidas }, "movie", "persona", quien?.name || "un director que te gusta");
   });
@@ -452,11 +515,12 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
       // Los Simpson y Friends, o sea sitcoms noventosas, y sus mejores semillas
       // (Breaking Bad, Chernobyl, Ataque a los Titanes) no aportaban nada.
       const serieParams = {
-        sort_by: "vote_count.desc", "vote_count.gte": 100,
+        sort_by: "vote_count.desc", "vote_count.gte": Math.max(100, votosMinimos || 0),
         with_keywords: grupo.join("|"),
       };
       if (anioMinimo) serieParams["first_air_date.gte"] = anioMinimo + "-01-01";
       if (generos?.length) serieParams.with_genres = generos.join("|");
+      if (excluirGeneros?.length) serieParams.without_genres = excluirGeneros.join(",");
       if (tipo !== "movie") {
         // Si pide series, cavo el doble acá: es la única vía que las trae
         const hondo = tipo === "tv" ? paginas * 2 : paginas;
@@ -522,10 +586,15 @@ export async function candidatosDesde(semilla, { excluir = new Set(), paginas = 
 // Esta barre el catálogo por sus géneros preferidos y no se agota.
 export async function candidatosAmplios(p, {
   excluir = new Set(), generos = null, anioMinimo = null, desde = 1, paginas = 3, tipo = null,
+  excluirGeneros = null, maxMin = null, votosMinimos = null,
 } = {}) {
-  const gustados = generos?.length ? generos
+  // Los 6 géneros que más le pesan — pero si excluyó alguno, ese no puede ocupar
+  // uno de los 6 lugares. Animación le pesa 2.88 y entraba siempre: con "sin
+  // animación" el barrido gastaba un sexto del presupuesto en algo vetado.
+  const veto = new Set(excluirGeneros || []);
+  const gustados = generos?.length ? generos.filter(g => !veto.has(g))
     : [...p.score.entries()]
-        .filter(([f, v]) => f.startsWith("gen:") && v > 0)
+        .filter(([f, v]) => f.startsWith("gen:") && v > 0 && !veto.has(+f.slice(4)))
         .sort((a, b) => b[1] - a[1]).slice(0, 6)
         .map(([f]) => +f.slice(4));
   if (!gustados.length) return [];
@@ -551,7 +620,15 @@ export async function candidatosAmplios(p, {
     }
   };
 
-  const base = { sort_by: "vote_count.desc", "vote_count.gte": 300, with_genres: gustados.join("|") };
+  const base = {
+    sort_by: "vote_count.desc",
+    "vote_count.gte": Math.max(300, votosMinimos || 0),
+    with_genres: gustados.join("|"),
+  };
+  // La fuente de fondo barre SUS géneros, y Animación es uno de los que más
+  // pesa: sin esto el barrido volvía lleno de animadas que después se tiraban.
+  if (excluirGeneros?.length) base.without_genres = excluirGeneros.join(",");
+  if (maxMin) base["with_runtime.lte"] = String(maxMin);
   if (tipo !== "tv") {
     await pedir("movie", {
       ...base, ...(anioMinimo ? { "primary_release_date.gte": anioMinimo + "-01-01" } : {}),
@@ -564,6 +641,39 @@ export async function candidatosAmplios(p, {
   }
   return [...mapa.values()];
 }
+
+// Los géneros que prometen que algo pasa además de gente hablando. Van por id y
+// no por nombre: los nombres cambian con el idioma, los ids no. Los de arriba son
+// de película y los de abajo de serie (TMDB usa tablas distintas).
+const GENEROS_CON_MOVIMIENTO = new Set([
+  28,    // Acción
+  12,    // Aventura
+  878,   // Ciencia ficción
+  14,    // Fantasía
+  53,    // Suspense
+  27,    // Terror
+  80,    // Crimen
+  9648,  // Misterio
+  10752, // Bélica
+  37,    // Western
+  10759, // Action & Adventure (serie)
+  10765, // Sci-Fi & Fantasy (serie)
+  10768, // War & Politics (serie)
+]);
+
+// Estos no son "movimiento", pero tampoco son de lo que él se queja: una comedia
+// no es un drama hablado. Y animación y familia ya tienen sus propias reglas más
+// abajo — sin esto pagaban dos veces, y un anime como Komi-san salía marcado
+// "puro diálogo, sin acción", que es cualquier cosa.
+// Medido sobre sus 284: sin esta salvedad la regla tocaba 40 títulos y se llevaba
+// puestos 17 que él puntuó 8+ (Friends, Los Simpson, Mi pobre angelito) contra 12
+// flojos. Con la salvedad toca 17 y queda 6 contra 6 — y los 6 flojos son
+// exactamente los que él nombra (El gran Gatsby 2, Los Fabelman 2, Oppenheimer 5).
+const GENEROS_QUE_NO_SON_DRAMA_HABLADO = new Set([
+  35,    // Comedia
+  16,    // Animación
+  10751, // Familia
+]);
 
 // --- 4. Preferencias declaradas ---
 // Son las que las puntuaciones NO enseñan solas: que la serie esté terminada,
@@ -639,6 +749,24 @@ export function preferencias(c, prefs, p_perfiles = null) {
     }
   }
 
+  // "Si es 100% hablada, sin un poquito de acción o alguna cosita más, es difícil
+  // que me guste." Es lo que él pidió, y no lo enseñan sus notas: medido sobre sus
+  // 284, tener o no un género de movimiento correlaciona -0.001 con el puntaje que
+  // pone (70% de gusto de los dos lados). Así que va como REGLA declarada, no como
+  // hallazgo: se prende, se apaga y se gradúa desde Mis gustos.
+  // Crimen y Misterio cuentan como movimiento a propósito: ahí viven las estafas y
+  // los giros (Nueve reinas, El secreto de sus ojos), que son de lo que más puntúa.
+  if (prefs.penalizarSoloHablada) {
+    const ids = c.generosIds || d.generosIds || [];
+    const puroDialogo = ids.length
+      && !ids.some(g => GENEROS_CON_MOVIMIENTO.has(g))
+      && !ids.some(g => GENEROS_QUE_NO_SON_DRAMA_HABLADO.has(g));
+    if (puroDialogo) {
+      ajuste -= prefs.penalizarSoloHablada;
+      notas.push("puro diálogo, sin acción");
+    }
+  }
+
   // Animación NO japonesa. Sus dieces de animación son de la infancia (Toy Story,
   // Air Bud) y arrastraban todo el catálogo Disney; hoy no quiere animadas salvo
   // anime. El anime queda exento a propósito: ese sí lo mira ahora.
@@ -672,8 +800,31 @@ export function parecidoA(featuresSemilla, features) {
 // Traduce el puntaje crudo del modelo a "de cada 10 así, cuántas te gustaron".
 // Sin esto le mostraba 0.44 y lo leía como "44% de posibilidades", cuando en
 // realidad a ese nivel el 94% se lo llevó con 7 o más.
-export function calibrar(vistas, muestra = 90) {
+
+// Pool adjacent violators: fuerza que a más puntaje no baje la probabilidad,
+// promediando los bloques que se contradicen. Se usa dos veces — antes y
+// después de fusionar los flacos — porque fusionar puede volver a romper el
+// orden.
+function isotonica(bloques) {
+  for (let i = 1; i < bloques.length; i++) {
+    while (i > 0 && bloques[i - 1].suma / bloques[i - 1].n > bloques[i].suma / bloques[i].n) {
+      bloques[i - 1].suma += bloques[i].suma;
+      bloques[i - 1].n += bloques[i].n;
+      bloques.splice(i, 1);
+      i--;
+    }
+  }
+  return bloques;
+}
+
+export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8 } = {}) {
+  // Las que él sacó del perfil tampoco calibran: si no representan su gusto, no
+  // pueden decidir qué significa un 78%.
+  const vistas = todas.filter(v => !noCuenta(v));
   if (vistas.length < 30) return null;
+  // Todas sus puntuaciones, no una de cada tres. Muestrear 90 de 284 tiraba dos
+  // tercios de la evidencia justo donde más falta hace: arriba, donde cada
+  // bloque terminaba con una sola película adentro.
   const paso = Math.max(1, Math.floor(vistas.length / muestra));
   const puntos = [];
   for (let i = 0; i < vistas.length; i += paso) {
@@ -684,20 +835,41 @@ export function calibrar(vistas, muestra = 90) {
   // Probabilidad LOCAL: de las que puntuaron parecido a este nivel, cuántas le
   // gustaron. La acumulada ("de acá para arriba") daba 89-96% para todo y no
   // servía para elegir entre dos opciones.
-  // Regresión isotónica (pool adjacent violators): fuerza que a más puntaje no
-  // baje la probabilidad, PERO promediando los bloques en conflicto. El máximo
-  // corrido que usaba antes aplastaba todo a un solo valor (84% de 0.06 a 0.37).
-  const bloques = puntos.map(p => ({ suma: p.gusto ? 1 : 0, n: 1, corte: p.pred }));
-  for (let i = 1; i < bloques.length; i++) {
-    while (i > 0 && bloques[i - 1].suma / bloques[i - 1].n > bloques[i].suma / bloques[i].n) {
-      bloques[i - 1].suma += bloques[i].suma;
-      bloques[i - 1].n += bloques[i].n;
-      bloques.splice(i, 1);
-      i--;
+  let bloques = isotonica(puntos.map(p => ({ suma: p.gusto ? 1 : 0, n: 1, corte: p.pred })));
+
+  // Un porcentaje sostenido por UNA película no es un porcentaje. La isotónica
+  // sobre datos binarios siempre termina en bloques puros: los 20 tramos de
+  // arriba tenían n=1 cada uno y publicaban "100%" (la tarjeta lo mostraba
+  // como 96%) porque esa única película le había gustado. Cada bloque tiene que
+  // llegar a minBloque observaciones o fusionarse con el vecino más flaco.
+  let cambio = true;
+  while (cambio && bloques.length > 1) {
+    cambio = false;
+    for (let i = 0; i < bloques.length; i++) {
+      if (bloques[i].n >= minBloque) continue;
+      const j = i === 0 ? 1
+        : i === bloques.length - 1 ? i - 1
+        : (bloques[i - 1].n <= bloques[i + 1].n ? i - 1 : i + 1);
+      const [a, b] = i < j ? [i, j] : [j, i];
+      bloques[a].suma += bloques[b].suma;
+      bloques[a].n += bloques[b].n;
+      bloques[a].corte = Math.min(bloques[a].corte, bloques[b].corte);
+      bloques.splice(b, 1);
+      cambio = true;
+      break;
     }
   }
-  const curva = bloques.map(b => ({ corte: b.corte, prob: b.suma / b.n }));
-  return curva;
+  bloques = isotonica(bloques);
+
+  // Y encima se encoge hacia su tasa base (cuánto le gusta lo que ve en
+  // general). Con prior=8, un bloque chico y optimista se acerca al promedio en
+  // vez de prometer el 100%; uno grande casi no se mueve.
+  const base = puntos.filter(p => p.gusto).length / puntos.length;
+  return bloques.map(b => ({
+    corte: b.corte,
+    prob: (b.suma + prior * base) / (b.n + prior),
+    n: b.n,
+  }));
 }
 
 // Dado un puntaje, qué proporción de lo que puntúa parecido le gustó
@@ -736,9 +908,17 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     const apoyo = c.apoyo / maxApoyo;
     const acuerdo = Math.min(c.semillas.length / 4, 1);
 
-    // Calibrado de popularidad: si le gustan cosas poco vistas, no le tires blockbusters
+    // Calibrado de popularidad, PERO DE UN SOLO LADO. Antes era una campana
+    // centrada en su promedio (9.664 votos), así que castigaba tanto lo desconocido
+    // como lo MUY visto: una de 200.000 votos sacaba 0.56 y una de un millón, 0.33.
+    // El motor terminaba apuntando a un nicho de ~10.000 votos y el 82% de lo que
+    // ofrecía tenía menos de 10.000. Medido sobre sus 285, eso está al revés: la
+    // correlación popularidad/nota es +0.133, y a las de más de 10.000 votos les
+    // pone 7.29 contra 6.92 a las de menos. Ser más conocida no puede restar.
     const votos = Math.log10(1 + c.votos);
-    const obscuridad = 1 - Math.min(Math.abs(votos - p.votosMedios) / 3, 1);
+    const obscuridad = votos >= p.votosMedios
+      ? 1
+      : 1 - Math.min((p.votosMedios - votos) / 3, 1);
 
     const dur = c.detalle?.dur;
     const duracion = dur ? 1 - Math.min(Math.abs(dur - p.durMedia) / 90, 1) : 0.5;

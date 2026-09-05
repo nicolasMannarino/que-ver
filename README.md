@@ -83,6 +83,14 @@ y se guarda en `preferencias.json`.
   Sin esto la lista arranca bien y se cae a pique en el puesto 5.
 - **Series**: bajar las que siguen al aire, y penalizar arriba de N capítulos.
 - **Evitar**: keywords como `time loop` o `amnesia`. No toca los giros finales.
+- **Drama hablado y nada más**: baja lo que solo es drama, romance, historia o
+  documental. Es lo que él pidió — *"si una película es 100% hablada sin un poquito
+  de acción o alguna cosita más es difícil que realmente me guste"* — y va como
+  regla declarada, no como hallazgo: medido sobre sus 284, tener o no un género de
+  movimiento **no predice nada** (correlación -0.001, 70% de gusto de los dos lados).
+  Crimen y misterio cuentan como movimiento, así que las estafas y los giros no se
+  tocan; comedia, animación y familia también quedan afuera, porque una comedia no
+  es un drama hablado y esas dos ya tienen su propia regla.
 - **Animación infantil**: cuánto restarle. El anime está exento.
 - **Estoy viendo ahora** y **Ya las vi**: no te las recomienda.
 - **Notas sueltas**: texto libre. El motor todavía no lo usa; está para no perderlo.
@@ -96,11 +104,17 @@ Mide el motor contra tus propias puntuaciones: para cada título tuyo arma el pe
 **sin él** y ve qué puntaje le habría dado. Si el motor sirve, lo que puntuaste 8-10
 tiene que quedar arriba de lo que puntuaste 1-6.
 
-    AUC 0.742    0.50 = una moneda · 0.70 = útil · 0.80+ = bueno
-    Spearman 0.429
+    AUC 0.745    0.50 = una moneda · 0.70 = útil · 0.80+ = bueno
+    Spearman 0.386
 
 Traducido: si agarrás una que te gustó y una que no, el motor las ordena bien 3 de
 cada 4 veces. Útil, no mágico.
+
+**Estuvo mudo un tiempo.** Leía la key con `leer(DATA + "/config.json")`, pero
+"config.json" es la *clave* del almacén y `leer` ya la resuelve contra `data/`:
+quedaba `data/C:/.../data/config.json`, que no existe. Sin key, `fichas()`
+devolvía cero títulos y el backtest imprimía **NaN** en las cuatro métricas sin
+decir por qué. Los números de acá arriba son de después de arreglarlo.
 
 La mezcla de la fórmula de afinidad (mitad rasgos sueltos, mitad "a cuáles de las
 tuyas se parece") se eligió corriendo esto, no a ojo: pasó de 0.724 a 0.742.
@@ -168,6 +182,80 @@ película** (Jaccard sobre sus rasgos) en vez de afinidad con el promedio, y se
 relajan las varas de popularidad — el vecindario de Nueve reinas es cine latino,
 que en TMDB tiene pocos votos y quedaba afuera.
 
+## La vara: 8 de cada 10 con nota 8
+
+Él lo pidió así: *"de 10 películas me tienen que gustar para un 8 más o menos 8"*.
+No era un capricho: **se puede**, y el número sale de sus propias notas.
+
+Midiendo leave-one-out sobre sus 284, agrupadas por el puntaje que les habría dado
+el motor:
+
+| vara | de 10, cuántas puntuó 8+ | cuántas sobreviven en 4 tandas |
+|---|---|---|
+| 0 — como estaba | 5.3 | 30, con relleno |
+| 0.3 | 6.8 | 24 |
+| 0.5 | 7.5 | 18 |
+| **0.7** | **8.4** | **10** |
+| 1.0 | 8.6 | 5 |
+
+Su línea de base eligiendo él: 8+ en el 39%, o sea **3.9 de 10**.
+
+**El bug:** `confianzaMinima: 0.3` estaba escrita en las preferencias por defecto
+desde el principio y **no la leía ningún archivo**. El filtro real era `>= 0`
+escrito a mano, así que entraba cualquier cosa que no fuera negativa. Pidiendo 60,
+de 30 tarjetas que salían **18 estaban debajo de 0.3**: relleno con el que la lista
+se veía llena y no servía.
+
+**El segundo bug, el que hacía que se repitieran siempre las mismas:** el bucle que
+cava en el catálogo cortaba al juntar `n` candidatos *cualesquiera*. Como el relleno
+llenaba el cupo rápido, **dejaba de buscar justo cuando todavía había buenas más
+adentro**. Ahora cuenta sólo las que pasan la vara y cava hasta 10 saltos: aparecieron
+Demon Slayer, Dragon Ball Super, Paprika, 5 centímetros por segundo y El regreso del
+gato, que antes no salían nunca.
+
+**El precio, dicho claro:** con la vara en 0.7 son ~10 títulos por búsqueda y después
+la lista se queda vacía a propósito — prefiere quedarse corta antes que rellenar. Y
+esos 10 son casi todos anime y Ghibli, porque ahí es donde su 8+ está concentrado.
+Más variedad y más aciertos tiran para lados opuestos. La perilla está en Mis gustos.
+
+## «No tener en cuenta»: sacar una nota del perfil
+
+Etiqueta nueva en Mis puntuaciones. La nota queda —Toy Story 10 es cierto— pero el
+título **sale del perfil entero**: no pesa, no es vecino, no puede ser semilla y no
+calibra. Es más fuerte que «de chico», que solo baja el peso a 0.35.
+
+La pidió él sospechando que sus 30 animadas de Disney/Pixar le estaban copando las
+recomendaciones. **Lo medí y la sospecha no se sostiene:** sacándolas, el peso del
+género Animación **sube** de 2.882 a 3.183. Sus 7 anime promedian **8.86**, el grupo
+más alto de toda su lista, y son ellos —no la nostalgia— los que sostienen la señal.
+La normalización por raíz de frecuencia hace el resto: al sacar 30 títulos tibios y
+dejar 7 extremos, la señal se concentra en vez de diluirse.
+
+La etiqueta queda igual porque sirve para lo que sirve. Pero para este problema no
+es la herramienta.
+
+## Por qué «Sin animación» deja la lista vacía
+
+No es sesgo: son **dos escalas distintas**. Medido leave-one-out sobre sus 285:
+
+| | máximo | mediana |
+|---|---|---|
+| animadas (37) | 1.62 | 0.63 |
+| imagen real (248) | 1.03 | **-0.17** |
+
+Y las de imagen real que llegan arriba son **los ocho Harry Potter**, que ya puntuó y
+por lo tanto nunca se recomiendan. En el catálogo sin ver, lo mejor de imagen real
+toca **0.37**. Con la vara en 0.7 no pasa nada, y no hay número de vara que arregle
+eso: el pozo no tiene con qué.
+
+Es lo que el README ya decía en «Más como esta» —*la confianza global se estanca en
+0.40 fuera del anime*— porque su gusto de imagen real es multi-modal: estafas,
+misterio con giro, drama emocional, Marvel. El promedio de esas zonas no es ninguna.
+
+**La herramienta que sí funciona ahí es «Más como esta».** Con semilla la confianza
+pasa a medir parecido directo con ESE título y rompe el techo: desde Nueve Reinas da
+El aura 0.78; desde El secreto de sus ojos, El aura 0.89 y El hijo de la novia 0.75.
+
 ## ¿Le achunta? El marcador contra la realidad
 
 La app **anota lo que promete**. Cada vez que recomienda algo guarda el porcentaje
@@ -176,30 +264,75 @@ que le puso; cuando ese título se puntúa, compara. Arriba de Recomendar aparec
     De las que te recomendé con 70% o más y después puntuaste:
     7 de 9 te gustaron (78%). Yo te había prometido 80% — le pega.
 
-**Es la única medición que no está sesgada.** El backtest mide contra películas que
-él ya había elegido ver; esto mide contra lo que la app eligió por él.
+### Solo cuenta lo que vio POR la recomendación
+
+Él lo preguntó así: *"si me recomendó algo y lo puntué después de verla, ¿cómo sabe
+que lo puntué después de verla y no porque ya la había visto?"*. No lo sabía. La
+única condición para anotarse un acierto era que el título tuviera una predicción
+pendiente, sin mirar de dónde venía el puntaje — y hay **cinco** caminos hacia
+`/api/puntuar`: la tarjeta, editar una nota vieja, "+ Agregar", "la dejé" y la
+pestaña Puntuar, que es literalmente una lista de cosas que ya vio.
+
+El sesgo iba **siempre a favor de la app**: le mostraba algo que él ya había visto
+hacía años y le había encantado, tocaba 9, y quedaba anotado como gol propio sin
+haber causado nada.
+
+Ahora la tarjeta pregunta primero y la nota va después:
+
+> **¿La viste por esta recomendación, o ya la habías visto de antes?**
+> `La vi por acá` · `Ya la había visto`
+
+Solo la primera cuenta. La segunda guarda la nota igual pero queda fuera del
+marcador, y la banda lo dice en voz alta: *"No cuento otras N que puntuaste pero ya
+habías visto de antes: esas no las gané yo"*. Los otros cuatro caminos no mandan la
+marca, así que **ninguno** puede resolver una predicción.
+
+Sigue estando **menos sesgada que el backtest** — mide contra lo que la app eligió,
+no contra lo que él ya había elegido ver — pero ya no se anota mérito ajeno.
 
 ## Confianza
 
 Cada recomendación muestra **qué porcentaje de lo que puntúa parecido le gustó**
 (7 o más), no el puntaje crudo del modelo. La curva se calibra contra sus propias
-notas con leave-one-out al construir el perfil (~300 ms).
+notas con leave-one-out al construir el perfil (~650 ms).
 
 Mostrar el puntaje crudo fue un error: leía "0.44" como "44% de posibilidades",
-cuando en sus datos ese nivel acierta el 95%.
+cuando en sus datos ese nivel acierta bastante más.
 
-| puntaje interno | de las que puntúan parecido, le gustaron |
-|---|---|
-| 0.60+ | 100% |
-| 0.45 | 95% |
-| -0.20 a 0.35 | 84% |
-| -0.40 | 58% |
+| puntaje interno | de las que puntúan parecido, le gustaron | sobre cuántas |
+|---|---|---|
+| 0.32+ | 94% | 64 |
+| 0.07 a 0.32 | 78% | 35 |
+| -0.22 a 0.07 | 68% | 72 |
+| -0.40 a -0.22 | 59% | 64 |
+| bajo -0.40 | 48% | 49 |
 
-**El número con el que comparar:** eligiendo él, le pone 7 o más al **66%** de lo
-que ve. La app en su banda media acierta 84%.
+**El número con el que comparar:** eligiendo él, le pone 7 o más al **70%** de lo
+que ve.
 
 **La advertencia honesta:** medido sobre películas que él ya eligió ver, que es una
 muestra sesgada a favor. En el catálogo entero va a acertar menos.
+
+### Por qué antes decía 96% de casi todo
+
+Él lo dijo así: *"no me dan ganas de verlas varias que están como que van a ser
+películas que me van a gustar sí o sí"*. Tenía razón, y era un bug con dos mitades.
+
+La curva se armaba con **una de cada tres** de sus puntuaciones (90 de 284) y sin
+piso de tamaño por tramo. La regresión isotónica sobre datos binarios siempre
+termina en bloques puros, así que los **20 tramos de arriba tenían una sola
+película cada uno** y publicaban 100% — la tarjeta lo mostraba como 96% — porque
+esa única película le había gustado. Abajo pasaba lo contrario: un solo bloque de
+40 observaciones cubría de -0.30 a 0.23 y decía **73% para todo**, que es justo
+donde cae casi toda recomendación real.
+
+Resultado: en cuatro tandas seguidas, las 48 tarjetas decían entre 73% y 96%. El
+número no distinguía nada.
+
+Ahora la curva usa **las 284**, ningún tramo se publica con menos de 20
+observaciones adentro (si no llega, se fusiona con el vecino) y encima se encoge
+hacia su tasa base con un prior de 8. Quedan cinco niveles reales —
+48 / 59 / 68 / 78 / 94 — sostenidos por entre 35 y 72 títulos cada uno.
 
 ## Lo ya mostrado vuelve
 
@@ -222,6 +355,39 @@ ordenada**. Antes cada tanda era una consulta nueva sobre un pozo distinto, así
 que la segunda podía traer algo mejor que la primera — y eso no es estar ordenado.
 Se arma una cola de 60 una vez y se sirve por pedazos; cuando se agota, lo nuevo
 entra sólo si no supera lo último servido.
+
+## «Mostrame otras» tardaba 21 segundos
+
+Él: *"tarda MUCHÍSIMO"*. Tenía razón y era un bug de contabilidad.
+
+Hasta dónde se había cavado en el catálogo salía de `mostradas.length / 24`. Pero
+desde que hay vara, una ronda puede devolver **cero** — y entonces `mostradas` no
+crece, el número no avanza, y el clic siguiente le pide a TMDB **exactamente las
+mismas páginas**. Con el cache frío son ~100 consultas de discover más hasta 600
+fichas, cada vez, para volver a devolver cero.
+
+Dos arreglos:
+
+- **La profundidad se guarda y siempre avanza** (`estado.profundidadCatalogo`). Cada
+  clic mira páginas nuevas. Además de rápido, ahora trae cosas distintas: aparecieron
+  Superman II, Godzilla: Guerra final y Preparatoria Halloween donde antes no salía
+  nada. Al pasar la página 400 vuelve a empezar, que para entonces está todo cacheado.
+- **Presupuesto de tiempo, no de vueltas**: la excavación corta a los 6 segundos. Como
+  la profundidad quedó guardada, el clic siguiente sigue desde donde dejó.
+
+Medido, con «Sin animación» puesto:
+
+    antes:  1.4s · 21.0s · 12.5s · 4.7s · 4.7s
+    ahora:  3.1s ·  2.1s ·  1.3s · 0.9s · 0.9s
+
+## Filtro de duración
+
+En Recomendar: **«Que no dure más de N minutos»**. En series mide el capítulo, que es
+lo que importa para «tengo hora y media». Si TMDB no sabe cuánto dura, la deja pasar:
+sacarla por falta de dato es peor que mostrarla con el número en blanco.
+
+Viaja hasta las fuentes (`with_runtime.lte`), así que no gasta el presupuesto trayendo
+epopeyas de tres horas para descartarlas al final — y de paso destapa páginas nuevas.
 
 ## El filtro filtra, no inventa
 
@@ -394,6 +560,7 @@ recargás la página.
 |---|---|
 | `anioMinimo` + `notaMinimaViejas` | Lo anterior a ese año solo aparece si llega a esa nota. |
 | `notaMinima` + `votosMinimos` | Piso de calidad para todo. |
+| `confianzaMinima` | La vara. Debajo de esto no se muestra nada, aunque la lista quede corta. |
 | `seriesTerminadas` | Las que siguen al aire pierden puntos. |
 | `maxEpisodios` | Arriba de 60 empieza a restar, cada vez más. |
 | `bonusCapituloCorto` | Capítulos de 35 min o menos suman. |
@@ -402,6 +569,7 @@ recargás la página.
 | `penalizarMotivos` | Cuánto bajar lo que se parece a las que marcaste con un motivo. |
 | `penalizarEfectosViejos` | Ciencia ficción y fantasía anteriores a `anioMinimo`: los efectos son lo que peor envejece. |
 | `penalizarFamilia` | Género Familia en imagen real: el mismo cluster de infancia que Disney, pero la regla de animación no lo toca. |
+| `penalizarSoloHablada` | Drama/romance/historia/documental sin ningún género de movimiento. Regla declarada, no aprendida: sobre sus notas la señal es cero. 0 lo apaga. |
 | `penalizarInfantil` | Animación + Familia, no japonesa. |
 | `penalizarAnimacionOccidental` | Cualquier animación no japonesa. **El anime queda exento a propósito**: sus dieces de animación son de la infancia, pero el anime sí lo mira hoy. |
 | `viendoAhora` | Se marcan como vistas al importar. |
