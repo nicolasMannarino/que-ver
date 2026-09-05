@@ -633,6 +633,17 @@ const archivoSemilla = () => {
 // /api/pulso no pide sesión porque trae su propio token y no devuelve datos
 // de nadie: solo cuánto tardó la máquina en hacer un trabajo fijo.
 const LIBRES = new Set(["/api/sesion", "/api/registro", "/api/entrar", "/api/salir", "/api/pulso"]);
+
+// Qué versión está corriendo, en /api/sesion.
+//
+// Sale de que no había forma de saber desde afuera si un push ya se desplegó o
+// todavía se estaba mirando el build anterior: la respuesta era idéntica antes y
+// después, así que confirmar un deploy era esperar y suponer. Ahora se pregunta.
+//
+// Render pone RENDER_GIT_COMMIT solo. En tu compu no existe, y ahí decir
+// "local" es más útil que un hash: lo que corre es lo que tenés en el disco,
+// commiteado o no. El repo es público, así que el hash no revela nada.
+const VERSION = process.env.RENDER_GIT_COMMIT?.slice(0, 7) || "local";
 const ipDe = (req) =>
   (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "";
 
@@ -689,6 +700,7 @@ async function manejar(req, res, url, cuenta) {
         // Para que la pantalla de registro sepa si mostrar el campo del código.
         necesitaCodigo: Auth.cantidadDeCuentas() > 0,
         largoMinimo: Auth.LARGO_MINIMO,
+        version: VERSION,
       });
     }
     if (url.pathname === "/api/registro" && req.method === "POST") {
