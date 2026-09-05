@@ -34,9 +34,9 @@ if errorlevel 1 (
 )
 
 REM Cambios sin guardar: no piso nada, ni siquiera para actualizar.
-git diff --quiet
+git diff --quiet 2>nul
 if errorlevel 1 goto :hay_cambios
-git diff --cached --quiet
+git diff --cached --quiet 2>nul
 if errorlevel 1 goto :hay_cambios
 
 for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "RAMA=%%b"
@@ -93,12 +93,34 @@ REM ------------------------------------------------------------------
 REM  4. Arrancar
 REM ------------------------------------------------------------------
 :arrancar
-REM Si dejaste un .env al lado, Node lo carga. Sirve para apuntar esta copia
-REM a la base de la nube (DATABASE_URL) y ver los mismos datos que la web.
+REM El .env es lo que conecta esta copia con la base de la nube. Con él, lo que
+REM puntuás acá se ve en la web y al revés; sin él, la app corre sola contra los
+REM archivos de data/ y las dos cosas se separan.
 set "ENVFILE="
-if exist ".env" set "ENVFILE=--env-file=.env"
-if exist ".env" echo    Leyendo .env
+if not exist ".env" goto :sin_env
 
+set "ENVFILE=--env-file=.env"
+
+REM El .env tiene la contraseña de la base y el secreto que descifra las API
+REM keys. .gitignore ya lo cubre, pero si alguna vez alguien lo fuerza dentro
+REM del repo esto lo grita antes de que salga en un push.
+git check-ignore -q .env 2>nul
+if errorlevel 1 (
+    echo.
+    echo    [!] CUIDADO: git NO esta ignorando .env.
+    echo        Ese archivo tiene la clave de la base. Revisa .gitignore
+    echo        antes de commitear nada.
+    echo.
+)
+echo    Datos: la base de la nube ^(lo mismo que ves en la web^)
+goto :abrir
+
+:sin_env
+echo    Datos: archivos de data/ en esta compu ^(NO es lo que ves en la web^)
+echo           Para ver lo mismo que la web: copia .env.example a .env
+echo           y pega DATABASE_URL y SESSION_SECRET desde Render.
+
+:abrir
 echo.
 echo    Abriendo http://localhost:%PORT%
 echo    Para cortar: Ctrl+C, o cerrá esta ventana.

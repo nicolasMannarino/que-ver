@@ -26,24 +26,48 @@ node server.mjs
 
 La primera pantalla te pide la API key y la guarda en `data/config.json`.
 
-Si preferís tenerla en un archivo, copiá `.env.example` a `.env` y **arrancá con
-`node --env-file=.env server.mjs`**: el server no lee `.env` solo, y `node
-server.mjs` a secas lo ignora. El `.bat` le pone la bandera si el archivo existe.
-
 > `data/` no está en el repo — adentro viven la key, las puntuaciones de cada
 > perfil y el cache. Se crea solo la primera vez que arranca.
 
-Te imprime dos direcciones:
+**El server escucha sólo en `localhost`.** En este modo la app abre tus datos sin
+pedir contraseña, así que atada a toda la red cualquiera en el mismo WiFi entra y
+los edita. Para el celular está la app publicada, que sí pide contraseña. Si
+igual la querés abrir en una red de confianza: `HOST=0.0.0.0`.
+
+### Ver en tu compu lo mismo que en la web
+
+Por defecto son dos mundos: acá los archivos de `data/`, allá la base. Puntuás en
+el celular y en la compu no está.
+
+Para que sean **la misma app**, copiá `.env.example` a `.env` y pegá las dos
+variables que ya tiene Render (*tu servicio → Environment*):
 
 ```
-en esta compu:  http://localhost:5173
-en el celular:  http://192.168.0.2:5173   (misma red WiFi)
+DATABASE_URL=...      la connection string de Neon, la "pooled"
+SESSION_SECRET=...    el mismo de Render, letra por letra
 ```
 
-**En el celular**: abrís esa segunda dirección y, desde el menú del navegador,
-*Agregar a pantalla de inicio*. Queda como una app, sin barra de navegador.
-La primera vez Windows puede pedirte permitir Node en el Firewall: aceptá para
-redes privadas.
+Doble clic en `que-ver.bat` y listo — al arrancar te dice cuál de los dos mundos
+estás mirando. A mano es `node --env-file=.env server.mjs`: **el server no lee
+`.env` solo**, y `node server.mjs` a secas lo ignora.
+
+Que `SESSION_SECRET` sea el mismo no es un detalle: con otro, la app arranca
+igual pero no puede descifrar tu API key de TMDB y te la pide de nuevo.
+
+**Ojo con la primera vez.** Al prender el `.env` vas a ver lo que hay **en la
+nube**, no los archivos de `data/`. Si tus puntuaciones nunca subieron, el perfil
+te va a aparecer vacío — y no se perdió nada: `data/` sigue intacto, apagás el
+`.env` y vuelve. Para mirar qué hay arriba antes de cambiar nada:
+
+```
+node --env-file=.env subir-mis-datos.mjs --mail vos@ejemplo.com --ensayo
+```
+
+`--ensayo` no escribe: sólo dice qué haría. Sacándolo, sube lo de esta compu.
+
+`.env` está en `.gitignore` y el `.bat` lo verifica en cada arranque. Esas dos
+líneas juntas son acceso completo a la base y a las API keys de todos: no van a
+un chat, ni a un issue, ni a un mail.
 
 `node test.mjs` corre los chequeos del motor y los parsers, sin red ni API key.
 `node test-auth.mjs` levanta el server en modo publicado, sobre un `data/` descartable,
@@ -54,6 +78,21 @@ contraseña no queda guardada en texto plano en ningún lado.
 DOM de mentira — existe porque una variable que quedó de una versión anterior tiraba
 ReferenceError, cortaba el bucle y dejaba la lista de puntuaciones vacía, y el chequeo
 de sintaxis no lo veía.
+
+`node test-almacen.mjs` y `node test-dos-instancias.mjs` prueban que tu compu y la
+web sean la misma app y no dos parecidas. Necesitan un Postgres descartable, y sin
+él se saltean solos:
+
+```
+docker run -d --name qv-pg-test -e POSTGRES_PASSWORD=qv -p 5433:5432 postgres:16-alpine
+set TEST_DATABASE_URL=postgres://postgres:qv@localhost:5433/postgres?sslmode=disable
+node test-almacen.mjs && node test-dos-instancias.mjs
+```
+
+El segundo levanta **dos servers contra la misma base** —uno hace de Render y otro
+de tu escritorio—, puntúa en uno y exige verlo en el otro, en las dos direcciones.
+Los dos se niegan a correr si `TEST_DATABASE_URL` apunta a algo alojado: borran las
+tablas antes de empezar.
 
 ## Perfiles
 
@@ -539,9 +578,83 @@ vueltas a la base, 14 segundos; juntas, 3.
 - **La CPU del plan gratis es un núcleo compartido**, entre 1 y 8 veces más lenta que
   una de escritorio y variable de minuto a minuto. Medible en `/api/pulso`. Es el
   techo de lo que se puede mejorar sin pagar.
-- **Una sola instancia.** El server carga todo a memoria al arrancar y escribe a
-  Postgres en cada cambio. Eso vale porque no hay un segundo proceso que le pise los
-  datos por atrás. Si algún día hay más de uno, esto hay que cambiarlo.
+- **Ya no hay una sola instancia.** Esto valía mientras la app de la compu usaba sus
+  archivos y la publicada su base. Ahora las dos van contra la misma, y cómo no se
+  pisan está abajo.
+
+### Dos instancias, una sola verdad
+
+La app de tu compu y la publicada son **la misma app**: la misma base, las mismas
+puntuaciones, las mismas etiquetas. Puntuás en el celular y está en la compu; la
+etiquetás en la compu y está en el celular. Sin exportar, sin importar, sin
+acordarte de sincronizar.
+
+Eso rompía el supuesto sobre el que estaba escrito el almacén. El server **carga
+todo a memoria al arrancar** y desde ahí contesta, que es lo que hace que una
+búsqueda cueste 0,8 s y no 14. Con un solo proceso eso es correcto. Con dos, la
+foto de uno envejece apenas el otro escribe — y lo grave no es leer viejo, es
+**guardar**: `puntuaciones.json` se escribe entero, así que la instancia
+desactualizada le devolvía a la base su copia vieja y se llevaba puesto todo lo
+que la otra había anotado desde que arrancó.
+
+Dos arreglos, los dos chicos:
+
+- **Antes de contestar cualquier `/api/`, traer lo que cambió.** No la base
+  entera: sólo las filas con `actualizado > la última marca`, que casi siempre
+  son cero. La marca es la del reloj **de la base** y no la de la máquina —dos
+  procesos no tienen por qué tener la misma hora, y un segundo de adelanto se
+  come un cambio para siempre—. Lo que vuelve cambiado tira además el perfil
+  derivado de ese usuario, porque los pesos de género salen de las puntuaciones
+  y ya no valen.
+
+- **No contestar `ok` antes de que el cambio esté en la base.** `escribir()`
+  encola y vuelve enseguida; el `200` salía con la escritura todavía en vuelo.
+  Con una instancia daba igual, porque el que preguntaba era el mismo proceso.
+  Con dos, ese `ok` es justamente la señal de que el otro lado puede ir a leer:
+  puntuabas en el celular, recargabas la compu al toque y no estaba. Ahora la
+  respuesta espera a que aterrice. En una lectura no cuesta nada, porque no hay
+  nada encolado.
+
+Un borrado no deja fila, así que no hay nada que traer y el perfil borrado
+sobrevivía del otro lado. Por eso hay una tabla de **lápidas**: se anota qué
+clave se fue y cuándo. Altas y bajas se leen juntas y ordenadas por fecha, para
+que borrar y volver a crear termine como corresponde y no al revés.
+
+#### La fila que se perdía para siempre
+
+La primera versión de esto tenía un agujero, y no era teórico: **`now()` en
+Postgres es la hora en que arrancó la transacción, no la del commit.**
+
+    A escribe con fecha           19:49:36.685    (transacción todavía abierta)
+    B toma su marca               19:49:36.849    (no ve nada: A no commiteó)
+    A commitea                    19:49:36.9xx
+    B pregunta "¿qué hay después de 19:49:36.849?"  ->  nada
+
+La fila de A quedaba con una fecha **anterior** a la marca de B, así que no
+volvía a aparecer nunca: puntuabas en el celular y en la compu no estaba hasta
+reiniciar. Verificado contra un Postgres de verdad, no deducido leyendo.
+
+El arreglo es mirar **diez segundos hacia atrás** además de lo posterior a la
+marca, que es muchísimo más que lo que tarda un `INSERT`. Eso hace que las
+mismas filas caigan en varias pasadas seguidas, así que la consulta se parte en
+dos: primero claves y fechas —sin contenido—, y sólo se piden los valores de lo
+que de verdad cambió. Sin eso, cada refresco mandaba `puntuaciones.json` entero
+por la red de nuevo.
+
+La fecha se compara como **texto de la base** y no como `Date`: el driver
+redondea a milisegundos, y dos escrituras dentro del mismo milisegundo se veían
+iguales.
+
+`test-almacen.mjs` reproduce el caso con una transacción abierta a mano y falla
+si se saca la ventana.
+
+**Lo que queda sin cubrir, dicho claro:** si escribís *la misma* cosa en los dos
+lados dentro de la misma fracción de segundo, gana el último y el otro cambio se
+pierde. Se puede arreglar con un número de versión por clave, pero para una
+persona que no está en dos pantallas a la vez es complejidad sin caso de uso.
+
+Lo prueban `test-almacen.mjs` (16 chequeos sobre el almacén) y
+`test-dos-instancias.mjs` (16, con dos servers de verdad contra la misma base).
 
 ### Variables de entorno
 
@@ -551,6 +664,7 @@ vueltas a la base, 14 segundos; juntas, 3.
 | `SESSION_SECRET` | Firma las sesiones y cifra las API keys. 32+ caracteres. **Si cambia, se cae cada sesión y ninguna key guardada se puede volver a leer.** |
 | `TMDB_API_KEY` | Solo para correrlo local sin cargar la key desde la web. |
 | `PORT` | Por defecto 5173. Render lo pone solo. |
+| `HOST` | Dónde escucha. Por defecto `127.0.0.1` — sólo tu compu. Render necesita `0.0.0.0` y lo tiene puesto en `render.yaml`; si la variable no llegara, el server igual lo detecta por `RENDER_EXTERNAL_URL` y no se cae. |
 | `REQUERIR_LOGIN=1` | Fuerza el modo con cuentas sin base, para probarlo en tu compu. |
 | `MANTENER_DESPIERTO` | Rango horario en el que la app no se deja dormir, ej. `9-1`. |
 | `MEDIR=1` | Escribe en el log cuánto tarda cada tramo de una búsqueda. |

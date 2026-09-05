@@ -5,10 +5,15 @@
 //   postgres  — para el hosting: allá el disco se borra en cada reinicio, así
 //               que un archivo no es un lugar donde guardar nada.
 //
-// El de postgres carga TODO a memoria al arrancar y escribe de fondo. Puede
-// permitirse eso porque Render corre una sola instancia: no hay un segundo
-// proceso que le pise los datos por atrás. Si algún día hay más de una, esto
-// deja de valer y hay que leer de la base en cada request.
+// El de postgres carga TODO a memoria al arrancar y escribe de fondo. Eso valía
+// mientras corría una sola instancia. Ya no: la app de tu compu apunta a la
+// MISMA base que la publicada, así que hay dos procesos escribiendo.
+//
+// Lo que lo hace seguro es refrescar(): antes de contestar cualquier request se
+// traen sólo las filas que cambiaron desde la última vez (`actualizado > marca`),
+// que casi siempre son cero. Leer la base entera en cada request era la otra
+// opción y costaba un segundo por pantalla; esto cuesta una consulta que no
+// devuelve nada.
 //
 // La clave es la ruta relativa de siempre ("usuarios/nico/puntuaciones.json").
 // Mantenerla igual es lo que evitó reescribir datos.mjs y server.mjs enteros.
@@ -25,6 +30,17 @@ let pool = null;
 let pendientes = Promise.resolve();
 let fallosDeEscritura = 0;
 
+// Hasta dónde leímos. Es la marca del reloj DE LA BASE, nunca la de esta
+// máquina: dos procesos no tienen por qué tener la hora igual, y un segundo de
+// adelanto acá se comería para siempre un cambio hecho allá.
+let marca = null;
+let refrescoEnVuelo = null;
+
+// clave -> el sello de fecha que ya aplicamos de esa clave. Es lo que evita
+// volver a traer el contenido de una fila que ya tenemos, porque la ventana de
+// solapamiento hace que las mismas filas caigan en varias pasadas seguidas.
+let aplicado = new Map();
+
 export const backend = () => modo;
 
 // --- Arranque ---------------------------------------------------------------
@@ -39,6 +55,12 @@ export const backend = () => modo;
 function conSslExplicito(url) {
   try {
     const u = new URL(url);
+    // Un "sslmode=disable" escrito a mano se respeta: es la única forma de
+    // apuntar a un Postgres que no habla TLS —el contenedor de los tests, uno
+    // en la misma máquina— y es una decisión explícita de quien puso la cadena,
+    // no algo en lo que se pueda caer por descuido. Contra Neon no sirve de
+    // nada: rechaza la conexión sin cifrar y la app no arranca.
+    if (u.searchParams.get("sslmode") === "disable") return url;
     u.searchParams.delete("channel_binding");
     u.searchParams.set("sslmode",
       process.env.DATABASE_SSL_SIN_VERIFICAR === "1" ? "no-verify" : "verify-full");
@@ -79,10 +101,143 @@ export async function abrir() {
     )
   `);
 
-  const { rows } = await pool.query("SELECT clave, valor FROM archivos");
+  // Un borrado no deja fila, así que refrescar() no tiene cómo verlo: para la
+  // otra instancia el perfil borrado sigue existiendo. Por eso la lápida.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS borrados (
+      clave TEXT PRIMARY KEY,
+      fecha TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  // Índices para que refrescar() no barra la tabla entera en cada request.
+  await pool.query("CREATE INDEX IF NOT EXISTS archivos_actualizado ON archivos (actualizado)");
+  await pool.query("CREATE INDEX IF NOT EXISTS borrados_fecha ON borrados (fecha)");
+
+  // La marca sale del reloj de la base y se toma ANTES de leer: si algo se
+  // escribe entre el SELECT y esta línea, la próxima pasada lo trae igual.
+  // Al revés —tomarla después— ese cambio no se vería nunca.
+  const { rows: [t] } = await pool.query("SELECT now() AS ahora");
+  marca = t.ahora;
+
+  const { rows } = await pool.query(
+    "SELECT clave, valor, actualizado::text AS sello FROM archivos");
   memoria = new Map(rows.map(r => [r.clave, r.valor]));
+  // Con qué fecha quedó cada una: si no, el primer refresco vuelve a traer el
+  // contenido de todo lo escrito en los últimos diez segundos sin necesidad.
+  aplicado = new Map(rows.map(r => [r.clave, r.sello]));
+
+  // Las lápidas viejas ya no le sirven a nadie: cualquier instancia que estuvo
+  // caída un mes recarga entera al arrancar.
+  pool.query("DELETE FROM borrados WHERE fecha < now() - interval '30 days'")
+    .catch(() => { /* limpieza, no es crítico */ });
+
   modo = "postgres";
   return modo;
+}
+
+// --- Traer lo que cambió en la base -----------------------------------------
+// Esto es lo que permite que la app de tu compu y la publicada sean la misma
+// cosa. Se llama antes de contestar cada request: casi siempre son cero filas.
+//
+// Devuelve las claves que cambiaron, para que quien llame pueda tirar lo que
+// derivó de ellas (los perfiles armados, las colas de recomendación).
+
+export function refrescar() {
+  if (modo !== "postgres") return Promise.resolve(null);
+  // Si ya hay una pasada en vuelo, esperamos esa en vez de disparar otra: al
+  // cargar la pantalla salen varios fetch juntos y no hace falta preguntarle
+  // lo mismo a la base cinco veces.
+  if (!refrescoEnVuelo) {
+    refrescoEnVuelo = hacerRefresco().finally(() => { refrescoEnVuelo = null; });
+  }
+  return refrescoEnVuelo;
+}
+
+// Cuánto se mira hacia atrás, además de lo posterior a la marca.
+//
+// Hace falta porque now() en Postgres es la hora en que ARRANCÓ la transacción,
+// no la del commit. Entre las dos hay milisegundos, y ahí se cuela un cambio que
+// no se ve NUNCA MÁS: la otra instancia escribe con fecha T1, todavía sin
+// commitear; ésta toma su marca en T2 > T1 y no lo ve porque no está commiteado;
+// cuando después pregunta "¿qué hay después de T2?", esa fila tiene T1 y queda
+// afuera para siempre. Verificado contra un Postgres de verdad, no deducido.
+//
+// Con la ventana, la fila vuelve a caer dentro del rango en la pasada siguiente.
+// Diez segundos es mucho más que lo que tarda un INSERT contra Neon, y lo que
+// cuesta de más lo paga la deduplicación de abajo.
+const VENTANA = "10 seconds";
+
+async function hacerRefresco() {
+  const cambiadas = new Set();
+  try {
+    // Primero que aterrice lo nuestro. Si no, una escritura todavía en la cola
+    // se pisa con la fila vieja que devuelve el SELECT de abajo.
+    await drenar();
+
+    const { rows: [t] } = await pool.query("SELECT now() AS ahora");
+
+    // Paso 1: sólo claves y fechas, sin los valores. Como la ventana hace que
+    // las mismas filas caigan varias veces seguidas, traer el contenido en este
+    // paso sería mandar puntuaciones.json entero una y otra vez.
+    //
+    // La fecha viaja como texto y no como Date: el driver recorta a
+    // milisegundos y dos escrituras dentro del mismo milisegundo quedarían
+    // iguales, así que la segunda se tomaría por ya aplicada. El texto de la
+    // base trae los microsegundos.
+    // La ventana va como parámetro y no pegada al string: es una constante de
+    // este archivo y no la toca nadie de afuera, pero una query armada con
+    // concatenación es lo que uno no quiere tener que mirar dos veces.
+    const { rows: probe } = await pool.query(
+      `SELECT clave, actualizado::text AS sello, actualizado AS t, 'alta' AS tipo
+         FROM archivos  WHERE actualizado > $1::timestamptz - $2::interval
+       UNION ALL
+       SELECT clave, fecha::text       AS sello, fecha       AS t, 'baja' AS tipo
+         FROM borrados  WHERE fecha       > $1::timestamptz - $2::interval
+       ORDER BY t ASC`, [marca, VENTANA]);
+
+    // Una clave puede aparecer como alta Y como baja si se borró y se volvió a
+    // crear dentro de la ventana. Vale sólo el último evento: aplicar los dos
+    // en orden dejaría a `aplicado` con una fecha, y en la pasada siguiente el
+    // otro evento se vería como nuevo y resucitaría un borrado.
+    const ultimo = new Map();
+    for (const r of probe) ultimo.set(r.clave, r);      // vienen ordenadas por t
+
+    const nuevas = [...ultimo.values()].filter(r => aplicado.get(r.clave) !== r.sello);
+
+    if (nuevas.length) {
+      // Paso 2: ahora sí, los valores, y sólo de lo que de verdad cambió.
+      const aTraer = nuevas.filter(r => r.tipo === "alta").map(r => r.clave);
+      const valores = new Map();
+      if (aTraer.length) {
+        const { rows } = await pool.query(
+          "SELECT clave, valor FROM archivos WHERE clave = ANY($1)", [aTraer]);
+        for (const r of rows) valores.set(r.clave, r.valor);
+      }
+      for (const r of nuevas.sort((a, b) => a.t - b.t)) {
+        if (r.tipo === "alta") {
+          // Si no vino, se borró entre los dos pasos: lo agarra la próxima.
+          if (!valores.has(r.clave)) continue;
+          memoria.set(r.clave, valores.get(r.clave));
+        } else {
+          memoria.delete(r.clave);
+        }
+        aplicado.set(r.clave, r.sello);
+        cambiadas.add(r.clave);
+      }
+    }
+
+    marca = t.ahora;
+    // `aplicado` no se poda: tiene una entrada por clave, igual que `memoria`,
+    // y guarda una fecha corta donde la otra guarda el archivo entero. Podarla
+    // por antigüedad obligaba a parsear el texto de fecha de Postgres, que es
+    // una dependencia del DateStyle de la base a cambio de nada.
+  } catch (e) {
+    // Sin base no se rompe la pantalla: se sigue con lo que hay en memoria y
+    // la marca queda donde estaba, así la próxima pasada trae todo lo perdido.
+    console.error("[almacen] no pude refrescar:", e.message);
+  }
+  return cambiadas;
 }
 
 // --- Cache de TMDB que sobrevive los reinicios --------------------------------
@@ -161,8 +316,12 @@ export async function cacheTamanio() {
 export async function recargar() {
   if (modo !== "postgres") return 0;
   await drenar();                       // primero que baje lo que está en vuelo
-  const { rows } = await pool.query("SELECT clave, valor FROM archivos");
+  const { rows: [t] } = await pool.query("SELECT now() AS ahora");
+  const { rows } = await pool.query(
+    "SELECT clave, valor, actualizado::text AS sello FROM archivos");
   memoria = new Map(rows.map(r => [r.clave, r.valor]));
+  aplicado = new Map(rows.map(r => [r.clave, r.sello]));
+  marca = t.ahora;                      // arrancamos de cero: la marca también
   return memoria.size;
 }
 
@@ -186,6 +345,9 @@ export function escribir(clave, valor) {
       "ON CONFLICT (clave) DO UPDATE SET valor = $2, actualizado = now()",
       [clave, JSON.stringify(valor)],
     );
+    // Si la clave estaba enterrada y vuelve, la lápida sale: si no, la otra
+    // instancia la borraría de nuevo apenas refresque.
+    encolar("DELETE FROM borrados WHERE clave = $1", [clave]);
     return valor;
   }
   const f = rutaDe(clave);
@@ -198,6 +360,9 @@ export function borrar(clave) {
   if (modo === "postgres") {
     memoria.delete(clave);
     encolar("DELETE FROM archivos WHERE clave = $1", [clave]);
+    encolar(
+      "INSERT INTO borrados (clave, fecha) VALUES ($1, now()) " +
+      "ON CONFLICT (clave) DO UPDATE SET fecha = now()", [clave]);
     return;
   }
   try { fs.rmSync(rutaDe(clave), { force: true }); } catch { /* ya no estaba */ }
@@ -206,8 +371,16 @@ export function borrar(clave) {
 // Borrar "usuarios/nico/" se lleva las puntuaciones, el estado, todo.
 export function borrarPrefijo(prefijo) {
   if (modo === "postgres") {
+    const like = prefijo.replace(/[%_]/g, "\\$&") + "%";
+    // Las lápidas se ponen clave por clave —del otro lado el borrado se aplica
+    // sobre el Map— y salen de la BASE, no de memoria: si esta instancia no
+    // tenía una fila que la otra sí, igual hay que enterrarla.
+    encolar(
+      "INSERT INTO borrados (clave, fecha) " +
+      "SELECT clave, now() FROM archivos WHERE clave LIKE $1 " +
+      "ON CONFLICT (clave) DO UPDATE SET fecha = now()", [like]);
+    encolar("DELETE FROM archivos WHERE clave LIKE $1", [like]);
     for (const k of [...memoria.keys()]) if (k.startsWith(prefijo)) memoria.delete(k);
-    encolar("DELETE FROM archivos WHERE clave LIKE $1", [prefijo.replace(/[%_]/g, "\\$&") + "%"]);
     return;
   }
   try { fs.rmSync(rutaDe(prefijo), { recursive: true, force: true }); } catch { /* ya no estaba */ }

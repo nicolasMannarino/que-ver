@@ -19,3 +19,9 @@ services:
         generateValue: true
       - key: NODE_VERSION
         value: "22"
+      # Sin esto no le llega ni un request: el server escucha sólo en localhost
+      # por defecto, porque en tu compu abre tus datos sin pedir contraseña y
+      # atado a 0.0.0.0 lo ve cualquiera en la misma red. Acá, donde SÍ pide
+      # contraseña y tiene que entrar gente de afuera, se abre a propósito.
+      - key: HOST
+        value: "0.0.0.0"

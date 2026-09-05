@@ -595,7 +595,20 @@ const MIME = {
   ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png",
 };
 
-function json(res, code, obj) {
+// Contestar recién cuando lo que se escribió está DE VERDAD en la base.
+//
+// escribir() encola y vuelve enseguida, así que hasta acá el 200 salía con la
+// escritura todavía en vuelo. Con una sola instancia daba igual —el que
+// preguntaba era el mismo proceso, y su memoria ya tenía el valor nuevo—, pero
+// con dos el "ok" es justamente la señal de que el otro lado puede ir a leer.
+// Si sale antes de tiempo, puntuás en el celular, recargás la compu al toque y
+// no está: la app de allá contesta la verdad de una base que todavía no
+// recibió nada.
+//
+// Cuando no hay nada encolado —o sea, en toda lectura— esto resuelve en el
+// acto y no cuesta nada.
+async function json(res, code, obj) {
+  await A.drenar();
   res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
 }
@@ -625,6 +638,16 @@ const ipDe = (req) =>
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
+
+  // Antes de mirar nada, traer lo que cambió en la base. Esto es lo que hace
+  // que la app de tu compu y la publicada sean la MISMA app: si puntuás algo en
+  // el celular, la de acá lo ve en el request siguiente. Sin esto, este proceso
+  // contesta con la foto que cargó al arrancar y encima la pisa al guardar.
+  //
+  // Sólo para /api/: el HTML y el CSS no leen datos de nadie y no hay por qué
+  // gastarles una consulta.
+  if (url.pathname.startsWith("/api/")) await sincronizar();
+
   const cuenta = CON_LOGIN ? Auth.leerSesion(req.headers.cookie) : null;
 
   if (CON_LOGIN && !cuenta && url.pathname.startsWith("/api/") && !LIBRES.has(url.pathname)) {
@@ -634,6 +657,27 @@ const server = http.createServer(async (req, res) => {
   return T.conKey(CON_LOGIN ? Auth.keyTmdbDe(cuenta) : null,
                   () => manejar(req, res, url, cuenta));
 });
+
+// Lo que cambió en la base invalida lo que derivamos de ello. El perfil (pesos
+// de género, calibración) sale de puntuaciones.json y preferencias.json: si el
+// archivo cambió, el perfil armado a partir de él ya no vale. Se tira y se
+// vuelve a armar en el próximo pedido.
+//
+// Va envuelto en try porque se llama ANTES del try de manejar(): una excepción
+// acá dejaba el request sin respuesta ninguna, colgado hasta que el navegador
+// se aburra. Quedarse con datos de hace un minuto es mucho mejor que eso.
+async function sincronizar() {
+  try {
+    const cambiadas = await A.refrescar();
+    if (!cambiadas || !cambiadas.size) return;
+    for (const clave of cambiadas) {
+      const m = /^usuarios\/([^/]+)\//.exec(clave);
+      if (m) invalidar(m[1]);
+    }
+  } catch (e) {
+    console.error("[server] no pude sincronizar:", e.message);
+  }
+}
 
 async function manejar(req, res, url, cuenta) {
   try {
@@ -1164,7 +1208,7 @@ async function manejar(req, res, url, cuenta) {
       res.writeHead(200, { "content-type": MIME[path.extname(full)] || "application/octet-stream" });
       return res.end(fs.readFileSync(full));
     }
-    json(res, 404, { error: "no existe" });
+    await json(res, 404, { error: "no existe" });
   } catch (e) {
     // "NO_KEY" y "BAD_KEY" salen de tmdb.mjs y son mensajes para mí, no para el
     // que está del otro lado: sin traducir, entrar sin haber cargado la key daba
@@ -1176,7 +1220,7 @@ async function manejar(req, res, url, cuenta) {
       return json(res, 400, { error: "Tu API key de TMDB dejó de ser válida. Cargá una nueva.", faltaKey: true });
     }
     const codigo = (e instanceof UsuarioInvalido || e instanceof Auth.ErrorAuth) ? 400 : 500;
-    json(res, codigo, { error: e.message });
+    await json(res, codigo, { error: e.message });
   }
 }
 
@@ -1253,20 +1297,51 @@ function ipDeLaRed() {
   return null;
 }
 
-server.listen(PUERTO, "0.0.0.0", () => {
+// Por defecto sólo localhost. En tu compu la app abre tus datos SIN pedir
+// contraseña, así que atada a 0.0.0.0 cualquiera en el mismo WiFi —una red de
+// un bar, la de la oficina— entra y los edita. Para el celular está la app
+// publicada, que sí pide contraseña.
+//
+// El hosting necesita 0.0.0.0 o no le llega nada: eso se pide explícito con
+// HOST, y está puesto en render.yaml. Que el default sea el lado cerrado es a
+// propósito: si mañana me olvido de configurar algo, me quedo sin acceso
+// remoto, no con los datos abiertos.
+// El render.yaml también lo pone, pero un blueprint sólo se relee cuando lo
+// sincronizás a mano: si el deploy sale sin la variable, el health check no
+// llega nunca y el servicio se cae. Render exporta RENDER_EXTERNAL_URL en todos
+// sus servicios —ya lo usa mantenerDespierto()—, así que eso alcanza para saber
+// que estamos en el hosting aunque HOST no haya llegado.
+const EN_RENDER = !!(process.env.RENDER
+  || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+const HOST = process.env.HOST || (EN_RENDER ? "0.0.0.0" : "127.0.0.1");
+
+server.listen(PUERTO, HOST, () => {
   console.log("\n  Qué Ver");
   if (CON_LOGIN) {
+    // De un vistazo tiene que quedar claro QUÉ datos estás mirando: los de la
+    // nube o los de esta compu. Confundirlos es puntuar media hora en el lugar
+    // equivocado. La cadena de conexión no se imprime NUNCA: trae la contraseña
+    // de la base adentro y los logs de Render los ve cualquiera con acceso al
+    // panel.
+    const enLaNube = A.backend() === "postgres";
     console.log("    modo:      publicado (con cuentas)");
-    console.log("    guardado:  " + A.backend());
-    console.log("    puerto:    " + PUERTO);
+    console.log("    datos:     " + (enLaNube
+      ? "la base de la nube — LO MISMO que ves en la web"
+      : "archivos de data/ en esta compu"));
+    console.log("    puerto:    " + PUERTO + (HOST === "0.0.0.0" ? "  (abierto a la red)" : "  (sólo esta compu)"));
+    if (HOST !== "0.0.0.0") console.log("    entrás en:  http://localhost:" + PUERTO);
     console.log("    cuentas:   " + Auth.cantidadDeCuentas());
     // Solo publicado: en tu compu el cache sobrevive y no hace falta.
     mantenerDespierto();
     calentarPerfiles().catch(e => console.error("    calentar falló:", e.message));
   } else {
-    const ip = ipDeLaRed();
     console.log("    en esta compu:  http://localhost:" + PUERTO);
-    if (ip) console.log("    en el celular:  http://" + ip + ":" + PUERTO + "   (misma red WiFi)");
+    // La dirección de la red sólo se anuncia si de verdad estamos escuchando
+    // ahí. Antes se imprimía siempre, y con HOST cerrado mandaba al celular a
+    // una puerta que no abre.
+    const ip = HOST === "0.0.0.0" ? ipDeLaRed() : null;
+    if (ip) console.log("    en el celular:  http://" + ip + ":" + PUERTO + "   (misma red WiFi, SIN contraseña)");
+    console.log("    datos:          archivos de data/ en esta compu");
     console.log("    usuarios: " + D.listarUsuarios().map(u => u.nombre + " (" + D.cargar(u.id).length + ")").join(", "));
     if (!config.tmdbKey) console.log("\n    Falta la API key de TMDB. La cargás desde la web.");
   }

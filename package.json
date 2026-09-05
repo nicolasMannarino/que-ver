@@ -10,6 +10,9 @@
     "start": "node server.mjs",
     "test": "node test.mjs",
     "test:front": "node test-front.mjs",
+    "test:auth": "node test-auth.mjs",
+    "test:almacen": "node test-almacen.mjs",
+    "test:dos": "node test-dos-instancias.mjs",
     "backtest": "node backtest.mjs"
   },
   "engines": {
