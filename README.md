@@ -12,14 +12,23 @@ nunca inventa títulos: todos salen del catálogo real.
 Necesitás Node 22 o más nuevo y una API key de TMDB — es gratis y sale en dos
 minutos en [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api).
 
+**En Windows, doble clic en `que-ver.bat`** y listo: baja la última versión —la
+misma que está publicada en la web—, instala lo que falte, levanta el server y te
+abre el navegador cuando ya contesta. Si tenés cambios sin commitear, no baja nada
+y te avisa que estás corriendo tu versión y no la publicada.
+
+A mano es lo mismo:
+
 ```
 cd que-ver
-cp .env.example .env      # y pegás tu key en TMDB_API_KEY
 node server.mjs
 ```
 
-Si preferís no usar `.env`, arrancá igual: la primera pantalla te pide la key y la
-guarda en `data/config.json`.
+La primera pantalla te pide la API key y la guarda en `data/config.json`.
+
+Si preferís tenerla en un archivo, copiá `.env.example` a `.env` y **arrancá con
+`node --env-file=.env server.mjs`**: el server no lee `.env` solo, y `node
+server.mjs` a secas lo ignora. El `.bat` le pone la bandera si el archivo existe.
 
 > `data/` no está en el repo — adentro viven la key, las puntuaciones de cada
 > perfil y el cache. Se crea solo la primera vez que arranca.
