@@ -23,7 +23,7 @@ console.log(`\nBacktest de "${usuario}" — ${puntuadas.length} títulos\n`);
 const vistas = await M.fichas(puntuadas);
 
 // La afinidad la trae el motor, para que esto mida exactamente lo que corre
-const afinidad = (perfil, v) => M.afinidad(perfil, v.features);
+const afinidad = (perfil, v) => M.afinidad(perfil, v.features, v.nota);
 
 const filas = [];
 for (let i = 0; i < vistas.length; i++) {

@@ -30,7 +30,7 @@ export function setKey(k) { apiKey = (k || "").trim(); }
 // una persona. Lo que cambia seguido (discover, busquedas) no vale la pena
 // guardarlo para siempre.
 let persistente = null;
-const PERSISTIBLE = /^\/(movie|tv)\/\d+$|^\/(movie|tv)\/\d+\/(recommendations|similar)$|^\/collection\/\d+$|^\/person\/\d+/;
+const PERSISTIBLE = /^\/(movie|tv)\/\d+$|^\/(movie|tv)\/\d+\/(recommendations|similar|external_ids)$|^\/tv\/\d+\/season\/\d+$|^\/collection\/\d+$|^\/person\/\d+/;
 export function usarCachePersistente(hooks) { persistente = hooks; }
 
 // Trae de una sola vez las fichas de una lista entera y las deja en el disco.
@@ -158,7 +158,11 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
     throw new Error("TMDB_" + res.status);
   }
   const crudo = await res.json();
-  const json = CON_FICHA.test(endpoint) ? recortar(crudo) : crudo;
+  // De una temporada el motor solo mira cuánto dura cada capítulo. Entera, con
+  // los invitados y el equipo de cada uno, pesa cien veces más.
+  const json = CON_FICHA.test(endpoint) ? recortar(crudo)
+    : TEMPORADA.test(endpoint) ? { episodes: (crudo.episodes || []).map(e => ({ runtime: e.runtime ?? null })) }
+    : crudo;
   writeCache(key, json);
   if (vaAlPersistente(endpoint)) persistente.escribir(key, json);
   return json;
@@ -172,7 +176,12 @@ export async function pool(items, limit, fn) {
     while (i < items.length) {
       const idx = i++;
       try { out[idx] = await fn(items[idx], idx); }
-      catch { out[idx] = null; }
+      catch (e) {
+        // Una key mala no es "falló este título": fallan todos. Tragársela dejaba
+        // la búsqueda vacía sin decir por qué, en vez de "cargá una key nueva".
+        if (e?.message === "NO_KEY" || e?.message === "BAD_KEY") throw e;
+        out[idx] = null;
+      }
     }
   });
   await Promise.all(workers);
@@ -182,8 +191,13 @@ export async function pool(items, limit, fn) {
 export const findByImdb = (tt) => tmdb(`/find/${tt}`, { external_source: "imdb_id" });
 export const details = (kind, id) =>
   tmdb(`/${kind}/${id}`, { append_to_response: "keywords,credits" });
+// Cuánto dura cada capítulo de una temporada. La de una serie ya emitida no cambia.
+const TEMPORADA = /^\/tv\/\d+\/season\/\d+$/;
+export const temporada = (id, n) => tmdb(`/tv/${id}/season/${n}`, {}, { ttl: 180 * 24 * 3600e3 });
 export const recommendations = (kind, id) => tmdb(`/${kind}/${id}/recommendations`, {}, { ttl: 30 * 24 * 3600e3 });
 export const similar = (kind, id) => tmdb(`/${kind}/${id}/similar`, {}, { ttl: 30 * 24 * 3600e3 });
+// El id de IMDb de una serie no viene en la ficha: vive acá. No cambia nunca.
+export const externos = (kind, id) => tmdb(`/${kind}/${id}/external_ids`, {}, { ttl: 180 * 24 * 3600e3 });
 export const providers = (kind, id) => tmdb(`/${kind}/${id}/watch/providers`, {}, { ttl: 3 * 24 * 3600e3 });
 export const searchMulti = (query, year) =>
   tmdb("/search/multi", year ? { query, year } : { query });

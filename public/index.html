@@ -652,6 +652,57 @@
       </div>
 
       <div class="regla">
+        <h3>Series que tienen que estar muy buenas</h3>
+        <p>Las coreanas, chinas y japonesas que no son anime no solés mirarlas salvo que
+           estén muy buenas, y la ciencia ficción vieja te cuesta por los efectos. Para
+           esas dos no alcanza con la nota —TMDB le pone 8.5 a cualquier K-drama con 600
+           votos—: tienen que tener <b>nota y votos</b>, y si no, no aparecen. El anime no entra.<br>
+           Las larguísimas, igual: con tantos capítulos te cuesta arrancar, salvo que sean de
+           capítulos cortos y estén muy buenas. Acá el anime sí entra.</p>
+        <div class="campos">
+          <span>Idiomas (códigos de TMDB)</span>
+          <input type="text" id="gIdiomas" style="width:9em">
+          <span>solo con nota de</span>
+          <input type="number" id="gIdiomaNota" min="0" max="10" step="0.1">
+          <span>y</span>
+          <input type="number" id="gIdiomaVotos" min="0" max="100000" step="100">
+          <span>votos</span>
+        </div>
+        <div class="campos">
+          <span>Ciencia ficción y fantasía de hace</span>
+          <input type="number" id="gSciFiAnios" min="0" max="100" step="1">
+          <span>años o más, solo con nota de</span>
+          <input type="number" id="gSciFiNota" min="0" max="10" step="0.1">
+          <span>y</span>
+          <input type="number" id="gSciFiVotos" min="0" max="100000" step="100">
+          <span>votos (0 años la apaga)</span>
+        </div>
+        <div class="campos">
+          <span>De más de</span>
+          <input type="number" id="gLargasEps" min="0" max="5000" step="10">
+          <span>capítulos, solo si duran</span>
+          <input type="number" id="gLargasMin" min="0" max="200" step="5">
+          <span>min o menos y tienen nota de</span>
+          <input type="number" id="gLargasNota" min="0" max="10" step="0.1">
+          <span>y</span>
+          <input type="number" id="gLargasVotos" min="0" max="100000" step="100">
+          <span>votos (0 capítulos la apaga)</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Musicales</h3>
+        <p>Dijiste que mucho no te gustan, pero que habría que ver. Así que no desaparecen:
+           bajan. Cuenta la etiqueta «musical» de TMDB, no el género Música, que también es
+           Whiplash.</p>
+        <div class="campos">
+          <span>Restarles</span>
+          <input type="number" id="gMusical" min="0" max="3" step="0.1">
+          <span>(0 = que den igual)</span>
+        </div>
+      </div>
+
+      <div class="regla">
         <h3>Nada que se repita ni se cuente desordenado</h3>
         <p>Por Memento, que puntuaste 1, y el día de la marmota. Ojo: esto <b>no</b> incluye
            los giros finales, que sí te gustan (El Gran Truco 8, Los sospechosos de siempre 8).
@@ -829,6 +880,17 @@ async function cargarGustos() {
   $("#gVotosMin").value = gustos.votosMinimos ?? 0;
   $("#gTerminadas").checked = !!gustos.seriesTerminadas;
   $("#gEpisodios").value = gustos.maxEpisodios ?? 60;
+  $("#gIdiomas").value = (gustos.idiomasSoloMuyBuenas || []).join(", ");
+  $("#gIdiomaNota").value = gustos.notaMinimaIdioma ?? 8;
+  $("#gIdiomaVotos").value = gustos.votosMinimosIdioma ?? 2500;
+  $("#gSciFiAnios").value = gustos.aniosSciFiVieja ?? 15;
+  $("#gSciFiNota").value = gustos.notaMinimaSciFiVieja ?? 8.5;
+  $("#gSciFiVotos").value = gustos.votosMinimosSciFiVieja ?? 2500;
+  $("#gLargasEps").value = gustos.episodiosSoloMuyBuenas ?? 100;
+  $("#gLargasMin").value = gustos.minutosCapituloLargas ?? 30;
+  $("#gLargasNota").value = gustos.notaMinimaLargas ?? 8.5;
+  $("#gLargasVotos").value = gustos.votosMinimosLargas ?? 2500;
+  $("#gMusical").value = gustos.penalizarMusical ?? 0;
   $("#gInfantil").value = gustos.penalizarInfantil ?? 0;
   $("#gHablada").value = gustos.penalizarSoloHablada ?? 0;
   $("#gConfMin").value = gustos.confianzaMinima ?? 0;
@@ -850,6 +912,17 @@ $("#btnGuardarGustos").onclick = async () => {
       votosMinimos: $("#gVotosMin").value,
       seriesTerminadas: $("#gTerminadas").checked,
       maxEpisodios: $("#gEpisodios").value,
+      idiomasSoloMuyBuenas: $("#gIdiomas").value,
+      notaMinimaIdioma: $("#gIdiomaNota").value,
+      votosMinimosIdioma: $("#gIdiomaVotos").value,
+      aniosSciFiVieja: $("#gSciFiAnios").value,
+      notaMinimaSciFiVieja: $("#gSciFiNota").value,
+      votosMinimosSciFiVieja: $("#gSciFiVotos").value,
+      episodiosSoloMuyBuenas: $("#gLargasEps").value,
+      minutosCapituloLargas: $("#gLargasMin").value,
+      notaMinimaLargas: $("#gLargasNota").value,
+      votosMinimosLargas: $("#gLargasVotos").value,
+      penalizarMusical: $("#gMusical").value,
       penalizarInfantil: $("#gInfantil").value,
       penalizarSoloHablada: $("#gHablada").value,
       confianzaMinima: $("#gConfMin").value,
@@ -1179,17 +1252,26 @@ async function buscar(mas) {
     if (semillaActiva) q.set("semilla", semillaActiva.key);
     const { lista, diagnostico } = await api("/api/recomendaciones?" + q);
     if (!mas) $("#resultados").innerHTML = "";
+    // Lo nuevo va ABAJO de lo que ya estaba, nunca entre medio. Antes se
+    // reordenaba la grilla entera por confianza, y si «otras» traía algo más
+    // alto se metía arriba: la primera recomendación se iba para abajo. Lo que
+    // ya está en pantalla no se mueve, y el orden es el del server tal cual:
+    // viene por secciones, y dentro de cada una siempre baja.
     for (const p of lista) {
+      // Una sección nueva arranca cuando, buscando más hondo, aparecieron
+      // mejores que lo último mostrado. Van abajo, separadas y avisadas.
+      if (p.inicioSeccion && $("#resultados").children.length) {
+        const sep = document.createElement("div");
+        sep.className = "separadorSeccion";
+        sep.style.cssText = "grid-column:1/-1;flex-basis:100%;padding:14px 4px 6px;"
+          + "opacity:.8;font-size:13px;border-top:1px solid currentColor";
+        sep.textContent = "Buscando más hondo aparecieron estas. Van aparte porque algunas puntúan "
+          + "más alto que las de arriba: de acá para abajo, el orden vuelve a empezar.";
+        $("#resultados").appendChild(sep);
+      }
       const el = tarjeta(p);
       el.dataset.conf = String(p.confianza ?? 0);
       $("#resultados").appendChild(el);
-    }
-    // Cada tanda venía ordenada pero al apilarse la grilla quedaba desordenada:
-    // reordeno todo junto para que se lea de más a menos confianza.
-    if ($("#porConfianza").checked) {
-      const todas = [...$("#resultados").children]
-        .sort((a, b) => (+b.dataset.conf || 0) - (+a.dataset.conf || 0));
-      for (const el of todas) $("#resultados").appendChild(el);
     }
     // Si apretó "otras" y no vino nada, hay que DECIRLO: antes no pasaba nada
     // en pantalla y parecía que el botón estaba roto.
@@ -1200,7 +1282,14 @@ async function buscar(mas) {
     // filtro o cambiar el preset.
     if (vacio) {
       const d = diagnostico;
-      if (d && d.rechazadas > 0 && d.mejorRechazada !== null) {
+      if (d && d.mejoresQueLoMostrado > 0) {
+        // Encontró mejores que lo ya mostrado. Arriba moverían lo que está en
+        // pantalla, y abajo mentirían el orden: van primeras en la próxima.
+        const k = d.mejoresQueLoMostrado;
+        $("#vacioRec").textContent = "Encontré " + k + (k === 1 ? " que salió mejor" : " que salieron mejores")
+          + " que las que ya te mostré. Para no meterlas entre medio, van primeras en tu próxima búsqueda: "
+          + "tocá «" + $("#btnBuscar").textContent.trim() + "».";
+      } else if (d && d.rechazadas > 0 && d.mejorRechazada !== null) {
         $("#vacioRec").textContent =
           "Encontré " + d.rechazadas + ", pero ninguna llega a tu vara de " + d.vara
           + ": la mejor da " + d.mejorRechazada + ". Poniendo «Qué tan exigente» en "

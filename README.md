@@ -129,7 +129,9 @@ y se guarda en `preferencias.json`.
   **no aparecen** si no llegan a `notaMinimaViejas`. Es una vara, no un descuento.
 - **Calidad mínima**: piso general de nota y de votos para cualquier recomendación.
   Sin esto la lista arranca bien y se cae a pique en el puesto 5.
-- **Series**: bajar las que siguen al aire, y penalizar arriba de N capítulos.
+- **Series**: bajar las que siguen al aire, y penalizar arriba de N capítulos. Arriba
+  de 100, directamente no aparecen salvo que el capítulo sea corto y la serie muy buena.
+- **Musicales**: bajan, no desaparecen. Por la keyword «musical», no por el género Música.
 - **Evitar**: keywords como `time loop` o `amnesia`. No toca los giros finales.
 - **Drama hablado y nada más**: baja lo que solo es drama, romance, historia o
   documental. Es lo que él pidió — *"si una película es 100% hablada sin un poquito
@@ -152,8 +154,8 @@ Mide el motor contra tus propias puntuaciones: para cada título tuyo arma el pe
 **sin él** y ve qué puntaje le habría dado. Si el motor sirve, lo que puntuaste 8-10
 tiene que quedar arriba de lo que puntuaste 1-6.
 
-    AUC 0.745    0.50 = una moneda · 0.70 = útil · 0.80+ = bueno
-    Spearman 0.386
+    AUC 0.776    0.50 = una moneda · 0.70 = útil · 0.80+ = bueno
+    Spearman 0.446
 
 Traducido: si agarrás una que te gustó y una que no, el motor las ordena bien 3 de
 cada 4 veces. Útil, no mágico.
@@ -166,6 +168,7 @@ decir por qué. Los números de acá arriba son de después de arreglarlo.
 
 La mezcla de la fórmula de afinidad (mitad rasgos sueltos, mitad "a cuáles de las
 tuyas se parece") se eligió corriendo esto, no a ojo: pasó de 0.724 a 0.742.
+Sumarle la nota de TMDB la llevó de 0.750 a 0.776 (ver «Tus 43 series»).
 
 ## Por qué no me gustó
 
@@ -464,6 +467,257 @@ Cada tarjeta dice **a cuál de sus películas se parece**, y no entran más de d
 que salgan de la misma. Sin eso salían cinco dramas argentinos seguidos, todos
 colgados de El secreto de sus ojos.
 
+## «Serie» no mostraba nada
+
+Él: *"no puede ser que teniendo puntuadas tantas series no me aparezcan opciones
+para ver"*. Tenía razón, y eran tres cosas.
+
+**La vara de votos era de películas.** `votosMinimos` en 5000 quiere decir "solo
+cosas conocidas", pero en TMDB una serie igual de conocida tiene muchos menos
+votos. Con 5000 pasan 1061 películas y **69 series**, de las cuales él ya vio la
+mitad. De 389 series candidatas, 360 morían ahí y quedaban 4.
+
+Ahora la vara se traduce por **posición en el catálogo**: el piso de series que
+deja pasar tantos títulos como ese piso deja pasar en películas. Medido contra
+TMDB en septiembre de 2026:
+
+| películas con ≥ | cuántas | series con ≥ | factor |
+|---|---|---|---|
+| 150 | 17.953 | 11 | 0.07 |
+| 1000 | 4.983 | 82 | 0.08 |
+| 5000 | 1.061 | 547 | 0.11 |
+| 10000 | 387 | 1403 | 0.14 |
+
+No es un factor fijo, así que `pisoVotos()` interpola en esa tabla. Si el catálogo
+cambia mucho, se vuelve a medir.
+
+**Sus películas no opinaban.** Pidiendo «Serie», las semillas eran solo sus 11
+series —casi todas anime— porque los `recommendations` de una película devuelven
+películas. Sus 32 películas favoritas no aportaban nada, y sus gustos de cine y de
+series son casi los mismos. Ahora van primero las semillas del tipo pedido y detrás
+las del otro, que entran por un **puente de keywords**: las keywords de esa película
+que más pesan en su perfil, buscadas entre las series. Las keywords de TMDB son las
+mismas para cine y TV. La tarjeta lo dice: *"Porque te gustó Batman: El caballero
+de la noche y El hombre araña 2"*. Con «Película» funciona igual, al revés.
+
+**Los géneros hablaban dos idiomas.** TMDB numera distinto los de TV: "Action &
+Adventure" es 10759, no Acción (28) y Aventura (12). Lo que aprendía de sus
+películas de acción no le decía nada de una serie de acción. Ahora el perfil
+traduce todo a un solo idioma, y al pedirle series a TMDB se traduce de vuelta —
+antes le pedía a `/discover/tv` "Aventura|Fantasía" con ids de cine, que ahí no
+existen. Para excluir no se traduce: vetar Aventura se llevaría toda la acción.
+El backtest no se mueve (AUC 0.751 → 0.750).
+
+Con sus datos, pidiendo «Serie»:
+
+| | antes | ahora |
+|---|---|---|
+| pasan la vara | 4 | 69 |
+| con «Sin animación» | las 4 eran anime | 40, 31 traídas por alguna película suya |
+
+**Lo que no cambió, dicho claro:** sin filtros, las primeras siguen siendo anime,
+porque ahí está su 8+ más alto. Para series de imagen real, «Sin animación» ahora
+sí tiene con qué: Merlín, Sandman, Firefly, Titanes, His Dark Materials.
+
+## Tus 43 series, y por qué igual salían raras
+
+Él, después de lo de arriba: *"fijate que tengo 43 series puntuadas"* y *"no me
+convencen mucho las recomendaciones de las series, son medias raras"*.
+
+**Solo 11 de sus 43 series sembraban.** 19 están arriba de su media; 2 son «de
+chico» y quedan afuera a propósito. Las otras 6 las tapaba el cupo de 5 semillas
+por género, que era **compartido con las películas**: sus películas de drama
+llenaban los 5 lugares, y Chernobyl, Peaky Blinders, Dr. House, Gambito de dama y
+Se presume inocente no sembraban nunca. Ahora el cupo es por género y por tipo: de
+11 series semilla a 16.
+
+**El motor no entendía sus series de imagen real.** Medido leave-one-out, le habría
+dado -0.17 a Breaking Bad (su 10), -0.50 a Chernobyl y -0.67 a Peaky Blinders (sus
+8): esas series no se parecen al anime, que domina el perfil. Sumar la nota de
+TMDB —centrada en la nota media de lo que él vio, para que la vara siga
+significando lo mismo— lo mejora en todos lados:
+
+| peso de la nota | AUC todo | películas | series |
+|---|---|---|---|
+| 0 (antes) | 0.730 | 0.720 | 0.723 |
+| **0.5** | **0.772** | **0.757** | **0.757** |
+| 0.7 | 0.767 | 0.749 | 0.778 |
+
+Estos AUC dejan afuera lo marcado «no tener en cuenta»; `backtest.mjs` lo incluye y
+da 0.750 → 0.776, Spearman 0.399 → 0.446. 0.7 le sube más a las series pero les baja
+a las películas, y con 43 series esa diferencia es ruido. Sumar también los votos
+casi no agrega y corre la escala.
+
+**«Porque te gustó» mentía en el puente.** *"Uzaki-chan, porque te gustó En busca de
+la felicidad"*: compartían una keyword suelta. Ahora una semilla que vino por el
+puente solo se nombra si se parece de verdad (Jaccard ≥ 0.04, unos 3 rasgos en
+común). Si no, la tarjeta dice qué rasgos suyos tiene.
+
+**Lo que sigue sin resolver, dicho claro:** sin filtros, «Serie» es casi todo anime
+al 88%, y ahí adentro el motor no distingue Jujutsu Kaisen de High School DxD: para
+él las dos son «anime, based on manga, shounen». Eso no lo arregla un peso; hace
+falta que él diga qué no quiere.
+
+## IMDb también en las series
+
+TMDB le pone el id de IMDb a la ficha de una película, pero a la de una serie no:
+vive en `/tv/{id}/external_ids`. Por eso las tarjetas de series linkeaban a TMDB.
+Se pide solo para lo que se muestra y para la biblioteca —el resto de la cola, de
+fondo— y queda cacheado también en la base: un id de IMDb no cambia. De 0 de 8
+tarjetas de series con IMDb a 8 de 8; en la biblioteca, 286 de 286. La primera vez
+que se abre la biblioteca tarda un segundo más, por las 43 series.
+
+## Varios segundos por búsqueda
+
+Él: *"se demora varios segundos para traer las recomendaciones, ya sea de películas,
+series o cuando pongo para que me traiga más"*. Medido en una copia aislada con sus
+datos y el cache de discover vacío, que es como queda Render después de cada
+reinicio:
+
+| | antes | ahora |
+|---|---|---|
+| buscar (todo) | 6.8 s | 1.7 s |
+| buscar serie | 1.0 s | 0.7 a 1.2 s |
+| buscar película | 0.7 s | 0.9 a 1.4 s |
+| «otras», clics seguidos | hasta 5.8 s | hasta 0.7 s |
+| «otras», leyendo 5 s entre clic y clic | hasta 5.8 s | 0.0 s |
+| armar el perfil | 0.7 s | 0.1 s |
+
+Serie y película no mejoran: ya eran de una sola ronda, y ahora siembran con más
+títulos (16 series, 38 películas). La diferencia entre corridas es la red. Y todo
+esto es en una compu de escritorio: en Render la CPU es de 3 a 8 veces más lenta,
+que es justo donde más pesa lo del perfil.
+
+- **Las páginas de TMDB se pedían de a una.** `candidatosPorPerfil` y
+  `candidatosAmplios` esperaban cada página antes de pedir la siguiente: hasta 30
+  idas y vueltas en fila. Ahora van todas a la vez y se agregan en el mismo orden,
+  así que el resultado no cambia.
+- **Calibrar rearmaba el perfil 286 veces**, con 286 conjuntos de rasgos nuevos
+  cada vez: 612 ms. `afinidadesSinCadaUna()` guarda las sumas de cada rasgo una
+  sola vez y a cada título le resta su parte: 64 ms, y da lo mismo hasta la
+  decimal 15 (`test.mjs` lo compara contra el camino largo). Importa más de lo que
+  parece: puntuar tira el perfil, así que esto se pagaba en la primera búsqueda
+  después de **cada** nota.
+- **El relleno de la cola arranca de fondo.** Cuando a la cola le queda menos de
+  una tanda, se busca la siguiente mientras él mira estas ocho, en vez de esperar
+  al clic. Pide lo que va debajo de lo que queda —el mismo tope de siempre—, y si
+  una búsqueda nueva lo deja viejo, deja de cavar y no anota nada. Sin eso, buscar
+  series después de un «otras» esperaba 4 segundos a un relleno que ya no servía.
+- **Si el relleno de fondo ya buscó y trajo poco, el clic no vuelve a cavar**:
+  sirve lo que hay. Era la misma excavación de 6 segundos dos veces seguidas.
+
+De paso, dos cosas que el relleno de fondo volvía urgentes. `recomendar()` ya no
+guarda la copia del estado que leyó al empezar: escribe sobre lo que hay en ese
+momento (`anotar()`). En disco, leer devuelve una copia nueva cada vez, y guardar
+la vieja se llevaba puesto un «No me interesa» que llegara en el medio. Y
+`T.pool()` ya no se traga un error de key: una key mala no es "falló este título",
+fallan todos, y tragárselo dejaba la búsqueda vacía sin decir por qué.
+
+## La primera no se mueve
+
+Él: *"me aparece una serie para ver primero y cuando pongo ver más esa serie como
+que se va desplazada. La primera cosa que me recomienden no debería irse para abajo
+nunca."*
+
+Eran dos cosas a la vez:
+
+- **La pantalla reordenaba la grilla entera** por confianza cada vez que llegaba una
+  tanda. Si «otras» traía algo más alto, se metía arriba y empujaba todo. Ahora lo
+  nuevo va siempre abajo, y lo que ya está en pantalla no se toca.
+- **El server dejaba entrar algo mejor que lo ya mostrado.** Cuando la cola se
+  vaciaba justo, el relleno buscaba "sin tope". Era así desde antes; con el relleno
+  de fondo pasaba más seguido. Ahora el tope es lo último que se mostró, siempre.
+
+Eso tenía un precio, y se midió: la lista se cortaba. Con «todo», a las 25 tarjetas
+el relleno encontraba 35 con más confianza que lo último mostrado y ninguna por
+debajo. Dos arreglos:
+
+- **La primera búsqueda mira más hondo**: una pasada por el catálogo aunque las
+  rondas de vecinos ya hayan juntado 24 (~0.5 s más). Así las buenas entran en el
+  orden desde el principio, en vez de aparecer después sin lugar donde ponerlas.
+- **Secciones.** Si igual se acaba lo de abajo y quedan mejores esperando, la lista
+  no se corta: arranca una sección nueva, abajo, con un cartel que dice que ahí el
+  orden vuelve a empezar. Lo de arriba no se mueve, y dentro de cada sección el
+  orden siempre baja. Se arma en el mismo viaje que el relleno, así que la tanda
+  sale entera y no de a una tarjeta.
+
+Medido con el cache frío sobre sus datos, cinco «otras» seguidos por búsqueda: ni
+una tarjeta supera a lo ya mostrado en su sección (el script de medición lo
+controla una por una), y todas las tandas salen de 8. Con «Sin animación», «todo»
+llega a 32 tarjetas y ahí sí se termina: no hay más que pasen su vara.
+
+**El precio, dicho claro:** cliqueando «otras» sin leer, el clic que arranca una
+sección espera al relleno: hasta 7 segundos. Leyendo las tarjetas, eso ya pasó de
+fondo y tarda entre 0 y 1.3 s.
+
+## «Solo si está muy buena»
+
+Dos reglas que él pidió. Las dos son vara —si no la pasa, no aparece—, las dos son
+para series de imagen real, y el anime queda afuera de las dos:
+
+- *"No suelo mirar series en coreano, chino o japonés a menos que sea anime o que
+  esté muy bueno."* Entre sus candidatas había 24 series asiáticas de imagen real,
+  casi todas K-dramas, y 18 pasaban la vara. La nota no las separa: TMDB les da entre
+  8.2 y 9.4 a todas, 8.5 a Scarlet Heart con 600 votos. Los votos sí. "Muy buena"
+  es nota 8 y 2500 votos, estar entre las ~200 series más votadas de TMDB. Quedan
+  Alice in Borderland, Estamos muertos y Goblin; se van las otras 21.
+- *"Si la serie es bastante vieja y de ciencia ficción hay que ver si es buena."* De
+  15 años o más, ciencia ficción o fantasía: nota 8.5 y 2500 votos. Empezó en 20
+  años, 8 y 1800; abajo, por qué cambió.
+
+Las películas no se tocan: Parásitos le gustó. Se editan en Mis gustos → «Series
+que tienen que estar muy buenas».
+
+## Firefly al 82%
+
+La primera vara de ciencia ficción vieja estaba hecha para que quedaran Firefly y
+Battlestar Galactica. Nico, al verlas: *"es de hace 24 años, serie de ciencia ficción
+que es difícil que esté buena después de tanto tiempo"*; de Battlestar, *"no sé si me
+van a gustar por los efectos especiales"*; de Merlín, "un poco lo mismo". Supernatural,
+por larga: *"con tantos capítulos es muy difícil que me den ganas de verla, a menos que
+duren 20 o 30 min y esté MUUUY BUENA toda la serie"*. Y Dr. Horrible, por musical.
+
+El 82% no mentía sobre lo que mide: Firefly tiene acción, espacio y «heist», que en
+sus notas pesan mucho, y un 8.3 en TMDB. Lo que no mide es la edad de los efectos: no
+hay ni una serie de ciencia ficción vieja entre sus 43, así que de eso las notas no
+enseñan nada. Tiene que ser regla declarada. Tres cambios:
+
+- **Ciencia ficción vieja: casi un no.** De 15 años para atrás —Merlín es de 2008 y con
+  20 ni entraba— y nota 8.5 con 2500 votos. Ninguna de las que salían llega: Firefly
+  8.3, Supernatural 8.3, Battlestar 8.2, Smallville 8.2, Fringe 8.1, Merlín 7.8.
+- **Series larguísimas: capítulo corto y muy buena, o nada.** Era un descuento que
+  topaba en -0.8, y Supernatural —327 capítulos de 45 minutos— salía octava. Arriba de
+  100 capítulos ahora tiene que durar 30 minutos o menos **y** tener 8.5 con 2500
+  votos. El anime también entra: pasa My Hero Academia (170 de 24 minutos, 8.6); se van
+  Inuyasha, Black Clover y Dragon Ball Super. Entre 60 y 100 sigue el descuento de siempre.
+- **Musicales: bajan, no desaparecen**, porque dijo "habría que ver". Resta 1 por la
+  keyword exacta «musical», no por pedazo: «based on play or musical» la tienen montones
+  de adaptaciones de teatro que no se cantan (Fleabag). Tampoco por el género Música,
+  que es Whiplash.
+
+**Cuánto dura el capítulo.** TMDB lo tiene en `episode_run_time`, que en muchas series
+viene vacío. El último capítulo al aire no sirve: en una serie terminada es el final,
+que suele ser doble (La Oficina 45 minutos, Lost 105). `completarDuracion()` toma la
+mediana de la primera temporada —La Oficina 23, Lost 44—, la pide solo para las de más
+de 100 capítulos y queda cacheada. Si ni así se sabe, la serie larga no pasa: no se
+puede decir que sea corta.
+
+Con sus datos, «Serie» + «Sin animación»:
+
+| | |
+|---|---|
+| antes, las primeras 8 | Firefly, See, Alice in Borderland, El último reino, Battlestar, Dr. Horrible, Sherlock, Supernatural |
+| ahora, las primeras 8 | See, Alice in Borderland, El último reino, Sherlock, Hermanos de sangre, Tabú, Titanes, The Punisher |
+| se fueron | Firefly, Battlestar, Dr. Horrible, Supernatural, Smallville, Fringe, Outlander, Person of Interest, Construyendo un parque |
+| entró | La Oficina: 186 capítulos, pero de 23 minutos y con 8.6 |
+
+**Lo que no se tocó, a propósito.** Roma: es de 2005 pero no tiene efectos, y sobre
+series viejas sin ciencia ficción sus notas dicen lo contrario —Dr. House 8, Breaking
+Bad 10, Prison Break 7—. "Me suena que no me va a gustar, pero son suposiciones" no
+alcanza para una regla; para eso está «No me interesa». Tampoco el piloto de hora y
+media: Firefly ya no sale, y Sherlock, de capítulos de 90, se saca con «Que no dure
+más de N minutos».
+
 ## Cómo decide
 
 **1. Resuelve tus puntuaciones contra TMDB.** Entiende tres formatos: el export de
@@ -736,6 +990,8 @@ recargás la página.
 | `penalizarSoloHablada` | Drama/romance/historia/documental sin ningún género de movimiento. Regla declarada, no aprendida: sobre sus notas la señal es cero. 0 lo apaga. |
 | `penalizarInfantil` | Animación + Familia, no japonesa. |
 | `penalizarAnimacionOccidental` | Cualquier animación no japonesa. **El anime queda exento a propósito**: sus dieces de animación son de la infancia, pero el anime sí lo mira hoy. |
+| `idiomasSoloMuyBuenas` + `notaMinimaIdioma` + `votosMinimosIdioma` | Series de imagen real en esos idiomas (`ko`, `zh`, `cn`, `ja`): solo si pasan nota **y** votos. El anime no entra. |
+| `aniosSciFiVieja` + `notaMinimaSciFiVieja` + `votosMinimosSciFiVieja` | Series de ciencia ficción o fantasía de esa antigüedad o más: ídem. 0 años la apaga. |
 | `viendoAhora` | Se marcan como vistas al importar. |
 | `yaVistas` | Lo que viste pero nunca puntuaste. |
 

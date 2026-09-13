@@ -38,6 +38,34 @@ export const PREFS_POR_DEFECTO = {
   // — ya estaba medido: correlaciona -0.001 con sus notas. Queda la perilla por si
   // alguien la quiere, en 0 por defecto.
   penalizarSoloHablada: 0,
+  // "No suelo mirar series en coreano, chino o japonés a menos que sea anime o
+  // que esté muy bueno." Series de imagen real en esos idiomas, solo si pasan
+  // nota Y votos: la nota sola no dice nada, TMDB le da 8.5 a cualquier K-drama.
+  // 2500 votos de serie es estar entre las ~200 más votadas de TMDB.
+  idiomasSoloMuyBuenas: ["ko", "zh", "cn", "ja"],
+  notaMinimaIdioma: 8.0,
+  votosMinimosIdioma: 2500,
+  // "Si la serie es bastante vieja y de ciencia ficción hay que ver si es buena."
+  // La primera vara (20 años, nota 8 y 1800 votos) la armé para que quedaran
+  // Firefly y Battlestar Galactica, y son justo las dos que después dijo que no:
+  // "son series viejas que hoy no sé si me van a gustar por los efectos". Merlín
+  // (2008) le pasa "un poco lo mismo", y con 20 años ni entraba en la regla.
+  // Con 15 años y 8.5 casi ninguna de esa época llega: es casi un no, a propósito.
+  // 0 años la apaga.
+  aniosSciFiVieja: 15,
+  notaMinimaSciFiVieja: 8.5,
+  votosMinimosSciFiVieja: 2500,
+  // "Con tantos capítulos es muy difícil que me den ganas de verla. A menos que
+  // duren 20 o 30 minutos y esté muuuy buena toda la serie." Arriba de esto no
+  // alcanza con el descuento de maxEpisodios: tiene que ser corta Y muy buena.
+  // 0 capítulos la apaga.
+  episodiosSoloMuyBuenas: 100,
+  minutosCapituloLargas: 30,
+  notaMinimaLargas: 8.5,
+  votosMinimosLargas: 2500,
+  // "Es medio musical y mucho no me gustan esas cosas, pero habría que ver."
+  // Descuento, no vara: habría que ver.
+  penalizarMusical: 1,
   penalizarMotivos: 1.5,
   confianzaMinima: 0.3,
   evitarKeywords: ["time loop", "nonlinear timeline", "amnesia", "memory loss"],

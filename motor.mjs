@@ -112,12 +112,59 @@ export function quitarColisiones(items) {
   };
 }
 
+// Los géneros de TV son otra tabla: "Action & Adventure" (10759) en vez de
+// Acción (28) y Aventura (12). Sin traducir, lo que aprendió de sus películas no
+// le decía nada de una serie: le gusta la acción, pero una serie de acción tenía
+// otro número y arrancaba de cero. Sus gustos de cine y de series son casi los
+// mismos, así que el perfil tiene que hablar un solo idioma de géneros.
+const GENERO_TV_A_CINE = { 10759: [28, 12], 10765: [878, 14], 10768: [10752], 10762: [10751] };
+const GENERO_CINE_A_TV = { 28: 10759, 12: 10759, 878: 10765, 14: 10765, 10752: 10768 };
+// Los que existen en /discover/tv. Suspenso, Terror, Romance e Historia no están.
+const GENEROS_TV = new Set([10759, 16, 35, 80, 99, 18, 10751, 10762, 9648,
+  10763, 10764, 10765, 10766, 10767, 10768, 37]);
+
+// Para PEDIRLE a TMDB series de ciertos géneros. Incluir traduce (Acción -> Action
+// & Adventure); excluir no, porque vetar Aventura se llevaría toda la acción.
+// Los chips del front ya mandan los dos ids cuando existen.
+export function generosPara(kind, ids, { excluyendo = false } = {}) {
+  if (kind !== "tv" || !ids?.length) return ids || [];
+  const t = excluyendo ? ids : ids.map(g => GENERO_CINE_A_TV[g] || g);
+  return [...new Set(t.filter(g => GENEROS_TV.has(g)))];
+}
+
+// `votosMinimos` está pensado en películas, y una serie igual de conocida tiene
+// muchos menos votos en TMDB. Aplicado tal cual, con 5000 pasaban 1061 películas
+// y 69 series, de las cuales ya había visto la mitad: de 389 series candidatas,
+// 360 morían ahí y "Serie" no mostraba nada.
+// La equivalencia es por POSICIÓN en el catálogo: el piso de series que deja
+// pasar tantos títulos como ese piso deja pasar en películas. No es un factor
+// fijo —va de 0.07 abajo a 0.14 arriba—, así que se interpola. Medido contra
+// TMDB en septiembre de 2026.
+const EQUIVALENCIA_SERIES = [
+  [150, 11], [500, 39], [1000, 82], [2000, 179], [5000, 547], [10000, 1403],
+];
+export function pisoVotos(min, kind) {
+  if (kind !== "tv" || !(min > 0)) return min || 0;
+  const t = EQUIVALENCIA_SERIES, lg = Math.log10;
+  let i = 1;
+  while (i < t.length - 1 && min > t[i][0]) i++;
+  const [x0, y0] = t[i - 1], [x1, y1] = t[i];
+  const f = (lg(min) - lg(x0)) / (lg(x1) - lg(x0));
+  return Math.max(1, Math.round(10 ** (lg(y0) + f * (lg(y1) - lg(y0)))));
+}
+
+// Si un título suyo es de alguno de estos géneros, en cualquiera de las dos tablas
+const esDeGenero = (s, ids) =>
+  (s.generosIds || []).some(g => ids.has(g)) ||
+  (s.features || []).some(f => f.startsWith("gen:") && ids.has(+f.slice(4)));
+
 // Extrae las señales de una ficha: géneros, keywords, gente, época, idioma
 export function rasgos(d, kind) {
   const kwRaw = d.keywords?.keywords || d.keywords?.results || [];
   const kw = kwRaw.map(k => "kw:" + k.id);
   const kwNames = kwRaw.map(k => (k.name || "").toLowerCase());
-  const gen = (d.genres || []).map(g => "gen:" + g.id);
+  const gen = [...new Set((d.genres || []).flatMap(g => GENERO_TV_A_CINE[g.id] || [g.id]))]
+    .map(id => "gen:" + id);
   const crew = d.credits?.crew || [];
   const dir = crew.filter(c => c.job === "Director" || c.job === "Creator").map(c => "dir:" + c.id);
   const escritor = crew.filter(c => c.department === "Writing").slice(0, 2).map(c => "wri:" + c.id);
@@ -212,7 +259,11 @@ export function perfil(todas) {
       if (n >= 2) continue;                      // como mucho 2 pelis por saga
       usoColeccion.set(v.coleccion, n + 1);
     }
-    const g = (v.generos || [])[0];
+    // El cupo es por género Y POR TIPO. Compartido, sus películas de drama
+    // llenaban los 5 lugares y Chernobyl, Peaky Blinders, Dr. House y Gambito de
+    // dama —8 las cuatro— no sembraban nunca: pidiendo series, sembraban el anime
+    // y un par más, y lo que salía era raro.
+    const g = (v.generos || [])[0] ? v.kind + ":" + v.generos[0] : null;
     if (g) {
       const n = usoGenero.get(g) || 0;
       if (n >= 5) continue;                      // como mucho 5 semillas por género
@@ -267,7 +318,13 @@ export function perfil(todas) {
     if (perfil.size) perfilesMotivo.set(mot, perfil);
   }
 
-  return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo,
+  // La nota de TMDB promedio de lo que vio. El término de calidad de afinidad()
+  // se centra acá, en SU escala: así la vara de exigencia sigue significando lo
+  // mismo que antes de sumarlo.
+  const conNota = vistas.filter(v => v.nota > 0);
+  const notaMedia = conNota.length ? conNota.reduce((s, v) => s + v.nota, 0) / conNota.length : null;
+
+  return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo, notaMedia,
            motivosUsados: [...porMotivo.entries()].map(([m, xs]) => [m, xs.length]),
            votosMedios, durMedia, total: vistas.length };
 }
@@ -319,6 +376,26 @@ export async function secuelasHuerfanas(cands, p) {
   return fuera;
 }
 
+// Cuánto dura el capítulo de una serie. TMDB lo tiene en episode_run_time, pero
+// seguido viene vacío (La Oficina, Outlander, Person of Interest), y el último
+// capítulo al aire tampoco sirve: en una serie terminada es el final, que suele
+// ser doble — La Oficina daba 45 minutos y Lost 105. La mediana de la primera
+// temporada sí: La Oficina 23, Lost 44. Se pide solo para las que la regla de
+// series larguísimas va a mirar, que son pocas; para todas eran decenas de
+// consultas más por búsqueda.
+export async function completarDuracion(cands, prefs) {
+  const umbral = prefs?.episodiosSoloMuyBuenas;
+  if (!umbral) return cands;
+  const faltan = cands.filter(c =>
+    c.kind === "tv" && c.detalle && !c.detalle.dur && (c.detalle.episodios || 0) > umbral);
+  await T.pool(faltan, 6, async (c) => {
+    const t = await T.temporada(c.tmdbId, 1);
+    const mins = (t?.episodes || []).map(e => e.runtime).filter(x => x > 0).sort((a, b) => a - b);
+    if (mins.length) c.detalle.dur = c.duracion = mins[Math.floor(mins.length / 2)];
+  });
+  return cands;
+}
+
 // Saca lo que no tiene sentido ofrecerle, aunque puntúe alto
 export function filtrar(cands, p, prefs = null) {
   const hoy = new Date().toISOString().slice(0, 10);
@@ -330,7 +407,7 @@ export function filtrar(cands, p, prefs = null) {
 
     // Piso de calidad general. Sin esto la lista arrancaba bien y se caía a pique
     // en el puesto 5: cuando quedan pocos candidatos, el relleno es cualquier cosa.
-    if ((c.votos || 0) < (prefs?.votosMinimos ?? 30)) return false;
+    if ((c.votos || 0) < pisoVotos(prefs?.votosMinimos ?? 30, c.kind)) return false;
     if (prefs?.notaMinima && (c.nota || 0) < prefs.notaMinima) return false;
 
     // "Si son anteriores al 2000, en general deberían ser buenas": para lo viejo
@@ -338,6 +415,34 @@ export function filtrar(cands, p, prefs = null) {
     const anio = d?.anio ?? c.anio;
     if (prefs?.notaMinimaViejas && prefs?.anioMinimo && anio && anio < prefs.anioMinimo) {
       if ((c.nota || 0) < prefs.notaMinimaViejas) return false;
+    }
+
+    // "No suelo mirar series en coreano, chino o japonés, a menos que sea anime o
+    // que esté muy bueno." Y "si la serie es bastante vieja y de ciencia ficción,
+    // hay que ver si es buena". Las dos son varas, no descuentos: si no la pasa,
+    // no aparece. "Muy buena" es nota Y votos, porque TMDB le da 8.5 a un K-drama
+    // con 600 votos (Scarlet Heart): de 24 series asiáticas de imagen real entre
+    // sus candidatas, todas tenían entre 8.2 y 9.4. El anime queda afuera de las
+    // dos a propósito: es lo que él sí mira, y en dibujo los efectos no envejecen.
+    const muyBuena = (nota, votos) => (c.nota || 0) >= nota && (c.votos || 0) >= votos;
+    if (c.kind === "tv" && d && !(d.generosIds || []).includes(16)) {
+      if (prefs?.idiomasSoloMuyBuenas?.includes(d.d?.original_language)
+          && !muyBuena(prefs.notaMinimaIdioma ?? 8, prefs.votosMinimosIdioma ?? 2500)) return false;
+      if (prefs?.aniosSciFiVieja && anio && anio <= +hoy.slice(0, 4) - prefs.aniosSciFiVieja
+          && (d.generosIds || []).includes(10765)
+          && !muyBuena(prefs.notaMinimaSciFiVieja ?? 8.5, prefs.votosMinimosSciFiVieja ?? 2500)) return false;
+    }
+
+    // "Con tantos capítulos es muy difícil que me den ganas de verla, a menos que
+    // duren 20 o 30 minutos y esté muuuy buena toda la serie." Antes era solo el
+    // descuento de maxEpisodios, que topa en -0.8, y Supernatural —327 capítulos
+    // de 45 minutos— salía octava. Arriba de N capítulos ahora es vara: corta Y muy
+    // buena. El anime sí entra acá: sus capítulos son de 24, así que decide la nota.
+    // Si no se sabe cuánto dura el capítulo no se puede decir que sea corto, y queda
+    // afuera; completarDuracion() ya lo buscó en la primera temporada.
+    if (c.kind === "tv" && prefs?.episodiosSoloMuyBuenas && (d?.episodios || 0) > prefs.episodiosSoloMuyBuenas) {
+      const corta = d.dur && d.dur <= (prefs.minutosCapituloLargas ?? 30);
+      if (!corta || !muyBuena(prefs.notaMinimaLargas ?? 8.5, prefs.votosMinimosLargas ?? 2500)) return false;
     }
     return true;
   });
@@ -371,21 +476,14 @@ export function diversificar(lista, n, maxPorGenero = 3, maxPorRincon = 2) {
 }
 
 // --- 3. Candidatos: salen de las pelis que le gustaron, no de la nada ---
-export async function candidatos(p, { semillas = 24, excluir = new Set(), generos = null, tipo = null, excluirGeneros = null } = {}) {
+export async function candidatos(p, { semillas = 24, excluir = new Set(), generos = null, tipo = null, excluirGeneros = null, votosMinimos = null } = {}) {
   // Si pidió un ánimo, las semillas salen de SUS pelis de ese palo. Sin esto,
   // "tensión" arrancaba de Los Simpson y Air Bud y no había con qué arreglarlo:
   // el vecindario Disney/sitcom es mucho más denso en TMDB que el de Chernobyl.
   let base = p.gustadas;
-  // Si pidió solo series, sembrar con películas es tirar el presupuesto: los
-  // recommendations de una peli devuelven pelis. Siembro del mismo tipo.
-  if (tipo) {
-    const delTipo = base.filter(s => s.kind === tipo);
-    if (delTipo.length >= 3) base = delTipo;
-  }
   if (generos?.length) {
     const ids = new Set(generos);
-    const delPalo = base.filter(s =>
-      (s.features || []).some(f => f.startsWith("gen:") && ids.has(+f.slice(4))));
+    const delPalo = base.filter(s => esDeGenero(s, ids));
     if (delPalo.length >= 4) base = delPalo;
   }
   // Y lo que EXCLUYÓ tampoco puede sembrar. Los vecinos de una animada son
@@ -394,29 +492,60 @@ export async function candidatos(p, { semillas = 24, excluir = new Set(), genero
   // tipo y el género pedido; a la exclusión nunca se lo habían hecho.
   if (excluirGeneros?.length) {
     const veto = new Set(excluirGeneros);
-    const limpias = base.filter(s =>
-      !(s.features || []).some(f => f.startsWith("gen:") && veto.has(+f.slice(4))));
+    const limpias = base.filter(s => !esDeGenero(s, veto));
     if (limpias.length >= 3) base = limpias;
   }
-  const seeds = base.slice(0, semillas);
+  // Pidiendo solo series, antes sembraba SOLO con series: los recommendations de
+  // una peli devuelven pelis. Pero así sus 32 películas favoritas no opinaban, y
+  // sus 11 series son casi todas anime: "Serie" devolvía anime y nada más. Sus
+  // gustos de cine y de series son casi los mismos. Ahora van primero las del
+  // tipo pedido —sus recomendadas son la mejor señal— y detrás las del otro, que
+  // entran por un puente: series con las keywords de esa película.
+  const seeds = tipo
+    ? [...base.filter(s => s.kind === tipo), ...base.filter(s => s.kind !== tipo)].slice(0, semillas)
+    : base.slice(0, semillas);
   const mapa = new Map();
 
+  // El puente: las keywords de ESA película que más pesan en su perfil, buscadas
+  // entre las series (o al revés). Las keywords de TMDB son las mismas para cine
+  // y TV, así que "estafa" encuentra estafas en los dos lados.
+  const puente = async (s) => {
+    const kws = (s.features || [])
+      .filter(f => f.startsWith("kw:") && (p.score.get(f) || 0) > 0)
+      .sort((a, b) => p.score.get(b) - p.score.get(a))
+      .slice(0, 4).map(f => f.slice(3));
+    if (!kws.length) return null;
+    const params = {
+      with_keywords: kws.join("|"), sort_by: "vote_count.desc",
+      "vote_count.gte": String(pisoVotos(Math.max(150, votosMinimos || 0), tipo)),
+    };
+    const con = generosPara(tipo, generos);
+    if (con.length) params.with_genres = con.join("|");
+    const sin = generosPara(tipo, excluirGeneros, { excluyendo: true });
+    if (sin.length) params.without_genres = sin.join(",");
+    return T.descubrir(tipo, params);
+  };
+
   await T.pool(seeds, 6, async (s) => {
-    const listas = await Promise.all([
-      T.recommendations(s.kind, s.tmdbId),
-      T.similar(s.kind, s.tmdbId),
-    ]);
-    for (const lista of listas) {
+    const listas = (!tipo || s.kind === tipo)
+      ? (await Promise.all([T.recommendations(s.kind, s.tmdbId), T.similar(s.kind, s.tmdbId)]))
+          .map(l => [l, s.kind])
+      : [[await puente(s), tipo]];
+    for (const [lista, deTipo] of listas) {
       for (const c of (lista?.results || []).slice(0, 20)) {
-        const kind = c.media_type || s.kind;
+        const kind = c.media_type || deTipo;
         if (kind !== "movie" && kind !== "tv") continue;
         if (tipo && kind !== tipo) continue;
         const key = kind + ":" + c.id;
         if (excluir.has(key)) continue;             // <-- filtro duro, por id
         const aporte = (s.rating - p.media) / p.desvio;
+        // Lo que vino por el puente lleva los rasgos de la semilla, para que
+        // motivo() la nombre solo si de verdad se parecen.
+        const semilla = { titulo: s.d.title || s.d.name, aporte,
+                          ...(tipo && s.kind !== tipo ? { rasgos: s.features } : {}) };
         const prev = mapa.get(key);
         if (prev) {
-          prev.semillas.push({ titulo: s.d.title || s.d.name, aporte });
+          prev.semillas.push(semilla);
           prev.apoyo += Math.max(0.2, aporte);
         } else {
           mapa.set(key, {
@@ -426,7 +555,7 @@ export async function candidatos(p, { semillas = 24, excluir = new Set(), genero
             poster: c.poster_path, resumen: c.overview,
             votos: c.vote_count || 0, nota: c.vote_average || 0,
             apoyo: Math.max(0.2, aporte),
-            semillas: [{ titulo: s.d.title || s.d.name, aporte }],
+            semillas: [semilla],
           });
         }
       }
@@ -482,7 +611,7 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
 
   // Otras que DIRIGIÓ. Ojo: el with_crew de /discover matchea cualquier rol,
   // así que devolvía películas donde el tipo solo figuraba como productor.
-  await T.pool(directores, 4, async (id) => {
+  const porDirector = T.pool(directores, 4, async (id) => {
     const [creditos, quien] = await Promise.all([T.creditosPersona(id), T.persona(id)]);
     const dirigidas = (creditos?.crew || [])
       .filter(c => c.job === "Director")
@@ -491,10 +620,11 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
       .filter(c => !generos?.length || (c.genre_ids || []).some(g => generos.includes(g)))
       .filter(c => !excluirGeneros?.length || !(c.genre_ids || []).some(g => excluirGeneros.includes(g)))
       .sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
-    agregar({ results: dirigidas }, "movie", "persona", quien?.name || "un director que te gusta");
+    return { dirigidas, quien: quien?.name || "un director que te gusta" };
   });
 
   // Y por las keywords que más se repiten en lo que puntuás alto
+  const pedidos = [];
   if (keywords.length) {
     const grupos = [];
     for (let i = 0; i < keywords.length; i += 4) grupos.push(keywords.slice(i, i + 4));
@@ -505,9 +635,7 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
       const etiqueta = nombres.length ? nombres.join(", ") : null;
       if (tipo !== "tv") {
         for (let pag = 1; pag <= paginas; pag++) {
-          const lista = await T.descubrir("movie", { ...comun, with_keywords: grupo.join("|"), page: String(pag) });
-          agregar(lista, "movie", "keyword", etiqueta, 0.35);
-          if ((lista?.results || []).length < 20) break;
+          pedidos.push({ kind: "movie", etiqueta, params: { ...comun, with_keywords: grupo.join("|"), page: String(pag) } });
         }
       }
 
@@ -515,23 +643,33 @@ export async function candidatosPorPerfil(p, { excluir = new Set(), generos = nu
       // Los Simpson y Friends, o sea sitcoms noventosas, y sus mejores semillas
       // (Breaking Bad, Chernobyl, Ataque a los Titanes) no aportaban nada.
       const serieParams = {
-        sort_by: "vote_count.desc", "vote_count.gte": Math.max(100, votosMinimos || 0),
+        sort_by: "vote_count.desc",
+        "vote_count.gte": pisoVotos(Math.max(150, votosMinimos || 0), "tv"),
         with_keywords: grupo.join("|"),
       };
       if (anioMinimo) serieParams["first_air_date.gte"] = anioMinimo + "-01-01";
-      if (generos?.length) serieParams.with_genres = generos.join("|");
-      if (excluirGeneros?.length) serieParams.without_genres = excluirGeneros.join(",");
+      const con = generosPara("tv", generos), sin = generosPara("tv", excluirGeneros, { excluyendo: true });
+      if (con.length) serieParams.with_genres = con.join("|");
+      if (sin.length) serieParams.without_genres = sin.join(",");
       if (tipo !== "movie") {
         // Si pide series, cavo el doble acá: es la única vía que las trae
         const hondo = tipo === "tv" ? paginas * 2 : paginas;
         for (let pag = 1; pag <= hondo; pag++) {
-          const series = await T.descubrir("tv", { ...serieParams, page: String(pag) });
-          agregar(series, "tv", "keyword", etiqueta, 0.35);
-          if ((series?.results || []).length < 20) break;
+          pedidos.push({ kind: "tv", etiqueta, params: { ...serieParams, page: String(pag) } });
         }
       }
     }
   }
+  // Todo a la vez. Antes cada página esperaba a la anterior: con el cache frío
+  // eran hasta 30 idas y vueltas a TMDB en fila, casi todo lo que tardaba la
+  // segunda ronda de una búsqueda. Se agregan en el mismo orden de antes
+  // —directores, después keywords en su orden—, así que el resultado es el
+  // mismo; solo deja de esperar.
+  const [dirs, listas] = await Promise.all([
+    porDirector, T.pool(pedidos, 6, (x) => T.descubrir(x.kind, x.params)),
+  ]);
+  for (const d of dirs) if (d) agregar({ results: d.dirigidas }, "movie", "persona", d.quien);
+  pedidos.forEach((x, i) => agregar(listas[i], x.kind, "keyword", x.etiqueta, 0.35));
   return [...mapa.values()];
 }
 
@@ -599,46 +737,56 @@ export async function candidatosAmplios(p, {
         .map(([f]) => +f.slice(4));
   if (!gustados.length) return [];
 
-  const mapa = new Map();
-  const pedir = async (kind, params, etiqueta) => {
-    for (let pag = desde; pag < desde + paginas; pag++) {
-      const lista = await T.descubrir(kind, { ...params, page: String(pag) });
-      for (const c of (lista?.results || [])) {
-        const key = kind + ":" + c.id;
-        if (excluir.has(key) || mapa.has(key)) continue;
-        mapa.set(key, {
-          key, kind, tmdbId: c.id,
-          titulo: c.title || c.name,
-          fecha: c.release_date || c.first_air_date || "",
-          poster: c.poster_path, resumen: c.overview,
-          votos: c.vote_count || 0, nota: c.vote_average || 0,
-          apoyo: 0.3, origen: "catalogo",
-          semillas: [{ titulo: etiqueta, aporte: 0.3 }],
-        });
-      }
-      if ((lista?.results || []).length < 20) break;
-    }
+  // Las páginas se piden todas a la vez y se agregan en orden. De a una, cada
+  // salto de la excavación eran 10 idas y vueltas a TMDB en fila: el «mostrame
+  // otras» que tardaba 6,4 segundos se iba casi entero acá.
+  const pedidos = [];
+  const pedir = (kind, params) => {
+    for (let pag = desde; pag < desde + paginas; pag++) pedidos.push({ kind, params: { ...params, page: String(pag) } });
   };
 
-  const base = {
-    sort_by: "vote_count.desc",
-    "vote_count.gte": Math.max(300, votosMinimos || 0),
-    with_genres: gustados.join("|"),
+  // Cada tipo con su piso de votos y sus ids de género: a /discover/tv le pedía
+  // "Aventura|Fantasía" con los números de cine, que ahí no existen.
+  const base = (kind) => {
+    const b = {
+      sort_by: "vote_count.desc",
+      "vote_count.gte": pisoVotos(Math.max(300, votosMinimos || 0), kind),
+      with_genres: generosPara(kind, gustados).join("|"),
+    };
+    // La fuente de fondo barre SUS géneros, y Animación es uno de los que más
+    // pesa: sin esto el barrido volvía lleno de animadas que después se tiraban.
+    const sin = generosPara(kind, excluirGeneros, { excluyendo: true });
+    if (sin.length) b.without_genres = sin.join(",");
+    if (maxMin) b["with_runtime.lte"] = String(maxMin);
+    return b;
   };
-  // La fuente de fondo barre SUS géneros, y Animación es uno de los que más
-  // pesa: sin esto el barrido volvía lleno de animadas que después se tiraban.
-  if (excluirGeneros?.length) base.without_genres = excluirGeneros.join(",");
-  if (maxMin) base["with_runtime.lte"] = String(maxMin);
   if (tipo !== "tv") {
-    await pedir("movie", {
-      ...base, ...(anioMinimo ? { "primary_release_date.gte": anioMinimo + "-01-01" } : {}),
-    }, null);
+    pedir("movie", {
+      ...base("movie"), ...(anioMinimo ? { "primary_release_date.gte": anioMinimo + "-01-01" } : {}),
+    });
   }
   if (tipo !== "movie") {
-    await pedir("tv", {
-      ...base, ...(anioMinimo ? { "first_air_date.gte": anioMinimo + "-01-01" } : {}),
-    }, null);
+    pedir("tv", {
+      ...base("tv"), ...(anioMinimo ? { "first_air_date.gte": anioMinimo + "-01-01" } : {}),
+    });
   }
+  const mapa = new Map();
+  const listas = await T.pool(pedidos, 8, (x) => T.descubrir(x.kind, x.params));
+  pedidos.forEach(({ kind }, i) => {
+    for (const c of (listas[i]?.results || [])) {
+      const key = kind + ":" + c.id;
+      if (excluir.has(key) || mapa.has(key)) continue;
+      mapa.set(key, {
+        key, kind, tmdbId: c.id,
+        titulo: c.title || c.name,
+        fecha: c.release_date || c.first_air_date || "",
+        poster: c.poster_path, resumen: c.overview,
+        votos: c.vote_count || 0, nota: c.vote_average || 0,
+        apoyo: 0.3, origen: "catalogo",
+        semillas: [{ titulo: null, aporte: 0.3 }],
+      });
+    }
+  });
   return [...mapa.values()];
 }
 
@@ -723,6 +871,17 @@ export function preferencias(c, prefs, p_perfiles = null) {
     }
     // Capítulos cortos: se banca mejor lo que no lo termina de convencer (Barry)
     if (prefs.bonusCapituloCorto && d.dur && d.dur <= 35) ajuste += prefs.bonusCapituloCorto;
+  }
+
+  // "Es medio musical y mucho no me gustan esas cosas, pero habría que ver" (por
+  // Dr. Horrible). Descuento y no vara, por ese "habría que ver". Lo único suyo
+  // con esta keyword son Aladdín (7) y El rey león (9), animadas de chico: nada
+  // que lo contradiga de grande. Keyword exacta y no por pedazo como las de
+  // Evitar: "based on play or musical" la tienen un montón de adaptaciones de
+  // teatro que no se cantan (Fleabag). Y no el género Música, que es Whiplash.
+  if (prefs.penalizarMusical && (d.kwNames || []).includes("musical")) {
+    ajuste -= prefs.penalizarMusical;
+    notas.push("musical");
   }
 
   // Se parece a las que él marcó con alguno de sus motivos
@@ -817,6 +976,75 @@ function isotonica(bloques) {
   return bloques;
 }
 
+// Leave-one-out EXACTO sin rearmar el perfil una vez por título. calibrar()
+// armaba 286 perfiles enteros —cada uno con 286 conjuntos de rasgos nuevos—, y
+// eso eran 860 ms en una compu de escritorio: en la CPU de Render, varios
+// segundos. Y se pagaban en la primera búsqueda después de CADA nota, porque
+// puntuar tira el perfil. Acá cada rasgo guarda sus sumas una sola vez y sacar
+// un título es restarle su parte. Da lo mismo que perfil() + afinidad(): test.mjs
+// lo compara contra el camino largo.
+export function afinidadesSinCadaUna(vistas) {
+  const n = vistas.length;
+  if (n < 2) return vistas.map(() => 0);
+  const r = vistas.map(v => v.rating);
+  const nost = vistas.map(v => ((v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1));
+  // Por rasgo: suma de nostalgia·nota, suma de nostalgia, y cuántas veces aparece.
+  // El peso de perfil() es Σ nost·(nota − media)/desvío = (A − media·B)/desvío.
+  const A = new Map(), B = new Map(), C = new Map();
+  vistas.forEach((v, i) => {
+    for (const f of v.features) {
+      A.set(f, (A.get(f) || 0) + nost[i] * r[i]);
+      B.set(f, (B.get(f) || 0) + nost[i]);
+      C.set(f, (C.get(f) || 0) + 1);
+    }
+  });
+  const sets = vistas.map(v => new Set(v.features));
+  const notas = vistas.map(v => (v.nota > 0 ? v.nota : 0));
+  const sumaNotas = notas.reduce((a, b) => a + b, 0);
+  const conNota = notas.filter(x => x > 0).length;
+
+  return vistas.map((v, i) => {
+    if (!v.features?.length) return 0;
+    let s = 0;
+    for (let j = 0; j < n; j++) if (j !== i) s += r[j];
+    const m = s / (n - 1);
+    let sq = 0;
+    for (let j = 0; j < n; j++) if (j !== i) sq += (r[j] - m) ** 2;
+    const d = Math.sqrt(sq / (n - 1)) || 1;
+
+    // Rasgos sueltos, sin la parte que ponía este título
+    const propias = new Map();
+    for (const f of v.features) propias.set(f, (propias.get(f) || 0) + 1);
+    let rasgos = 0;
+    for (const f of v.features) {
+      const k = propias.get(f), c = C.get(f) - k;
+      if (c <= 0) continue;                       // solo lo tenía él: sin puntaje
+      rasgos += (A.get(f) - k * nost[i] * r[i] - m * (B.get(f) - k * nost[i])) / d / Math.sqrt(c);
+    }
+    rasgos /= Math.sqrt(v.features.length);
+
+    // Vecinos: los mismos que afinidadVecinos(), en el mismo orden
+    const sims = [];
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue;
+      let inter = 0;
+      for (const f of sets[i]) if (sets[j].has(f)) inter++;
+      if (inter) sims.push({ jac: inter / (sets[i].size + sets[j].size - inter), w: (r[j] - m) / d });
+    }
+    let vec = 0;
+    if (sims.length) {
+      sims.sort((a, b) => b.jac - a.jac);
+      const top = sims.slice(0, 20);
+      vec = top.reduce((t, x) => t + x.jac * x.w, 0) / (top.reduce((t, x) => t + x.jac, 0) || 1);
+    }
+
+    const otras = conNota - (notas[i] > 0 ? 1 : 0);
+    const notaMedia = otras ? (sumaNotas - notas[i]) / otras : null;
+    const calidad = v.nota && notaMedia ? PESO_NOTA * (v.nota - notaMedia) : 0;
+    return 0.5 * vec + 0.5 * (rasgos / 3) + calidad;
+  });
+}
+
 export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8 } = {}) {
   // Las que él sacó del perfil tampoco calibran: si no representan su gusto, no
   // pueden decidir qué significa un 78%.
@@ -826,10 +1054,10 @@ export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8 
   // tercios de la evidencia justo donde más falta hace: arriba, donde cada
   // bloque terminaba con una sola película adentro.
   const paso = Math.max(1, Math.floor(vistas.length / muestra));
+  const preds = afinidadesSinCadaUna(vistas);
   const puntos = [];
   for (let i = 0; i < vistas.length; i += paso) {
-    const p = perfil(vistas.filter((_, j) => j !== i));
-    puntos.push({ pred: afinidad(p, vistas[i].features), gusto: vistas[i].rating >= 7 });
+    puntos.push({ pred: preds[i], gusto: vistas[i].rating >= 7 });
   }
   puntos.sort((a, b) => a.pred - b.pred);
   // Probabilidad LOCAL: de las que puntuaron parecido a este nivel, cuántas le
@@ -886,12 +1114,23 @@ export function probabilidad(curva, valor) {
 
 // La afinidad tal como la usa el motor. La usa también backtest.mjs, para que
 // lo que se mide sea exactamente lo que corre.
-export function afinidad(p, features) {
+//
+// Suma la nota de TMDB, por punto arriba o abajo de la media de lo que él vio.
+// Sin ella el motor le daba -0.17 a Breaking Bad (su 10) y -0.67 a Peaky
+// Blinders (su 8): sus rasgos de imagen real no se parecen al anime que domina
+// el perfil, y lo que salía en «Serie» era raro. El peso sale del backtest:
+//   0.5 -> AUC todo 0.730 a 0.772 · películas 0.720 a 0.757 · series 0.723 a 0.757
+// 0.7 le sube más a las series pero les baja a las películas, y con 43 series
+// esa diferencia es ruido. Los votos casi no suman encima y corren la escala.
+const PESO_NOTA = 0.5;
+
+export function afinidad(p, features, nota = null) {
   if (!features?.length) return 0;
   let rasgos = 0;
   for (const x of features) rasgos += p.score.get(x) || 0;
   rasgos = rasgos / Math.sqrt(features.length);
-  return 0.5 * afinidadVecinos(p, features) + 0.5 * (rasgos / 3);
+  const calidad = nota && p.notaMedia ? PESO_NOTA * (nota - p.notaMedia) : 0;
+  return 0.5 * afinidadVecinos(p, features) + 0.5 * (rasgos / 3) + calidad;
 }
 
 export function puntuar(cands, p, { prefs = null } = {}) {
@@ -901,7 +1140,7 @@ export function puntuar(cands, p, { prefs = null } = {}) {
 
     // Afinidad: mitad rasgos sueltos, mitad "a cuáles de las suyas se parece".
     // La mezcla la elegí midiendo con backtest.mjs, no a ojo.
-    const afin = afinidad(p, f);
+    const afin = afinidad(p, f, c.nota);
     c.masParecidaTuya = afinidadVecinos(p, f, 20, true);
 
     // Acuerdo entre semillas: si salió de 4 pelis distintas que le gustaron, vale más
@@ -949,13 +1188,22 @@ export function puntuar(cands, p, { prefs = null } = {}) {
 const enumerar = (xs) =>
   xs.length <= 1 ? (xs[0] || "") : xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1];
 
+// Cuánto se tiene que parecer una serie a la película que la trajo por el puente
+// para nombrarla. 0.04 son unos 3 rasgos en común; con uno solo suelto salía
+// "Uzaki-chan, porque te gustó En busca de la felicidad".
+const PARECIDO_PUENTE = 0.04;
+
 export function motivo(c, p) {
-  const top = [...c.semillas].sort((a, b) => b.aporte - a.aporte).slice(0, 2).map(s => s.titulo);
+  const semillas = c.semillas.filter(s =>
+    !s.rasgos || parecidoA(s.rasgos, c.detalle?.features || []) >= PARECIDO_PUENTE);
+  const top = [...semillas].sort((a, b) => b.aporte - a.aporte).slice(0, 2).map(s => s.titulo);
   if (c.origen === "semilla") return "Del palo de " + (c.semillaTitulo || top[0]) + ", que puntuaste alto.";
   if (c.origen === "catalogo") return "No salió de ninguna tuya en particular: es de los géneros que más puntuás alto.";
   if (c.origen === "persona") return `Otra de ${top[0]}, que aparece varias veces entre tus mejores puntajes.`;
 
-  if (c.origen === "keyword") {
+  // Sin ninguna semilla que se le parezca de verdad, lo honesto es decir qué
+  // rasgos suyos tiene, no inventarle un "porque te gustó".
+  if (c.origen === "keyword" || !semillas.length) {
     // Nombro las keywords que ESTA película tiene y que además pesan en su perfil.
     // Antes volcaba el grupo que disparó la búsqueda y decía «pixar» para Naruto.
     const suyas = (c.detalle?.features || [])
@@ -970,6 +1218,6 @@ export function motivo(c, p) {
     return `Tiene ${enumerar(suyas.map(x => "«" + x + "»"))}, que aparecen seguido en lo que puntuás alto.`;
   }
 
-  if (c.semillas.length >= 3) return `Salió de ${c.semillas.length} que puntuaste alto, entre ellas ${enumerar(top)}.`;
+  if (semillas.length >= 3) return `Salió de ${semillas.length} que puntuaste alto, entre ellas ${enumerar(top)}.`;
   return `Porque te gustó ${enumerar(top)}.`;
 }

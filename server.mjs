@@ -53,6 +53,13 @@ for (const u of D.todosLosUsuarios()) D.migrarLentas(u.id);  // marca 🐢 vieja
 
 const perfiles = new Map();                    // userId -> { perfil, vistas }
 const colas = new Map();                       // userId -> { firma, lista, servidas }
+// El relleno de fondo de la cola de cada uno (ver recomendarEnOrden). Va aparte
+// de la cola porque puntuar la tira, y el relleno igual tiene que terminar antes
+// de que arranque otra búsqueda: si no, las dos anotan "lo mostrado" a la vez.
+const rellenos = new Map();                    // userId -> { gen, promesa }
+// Cada búsqueda distinta sube la generación. Un relleno de una generación vieja
+// deja de cavar y no anota nada: ya no hay a quién servirle.
+const generaciones = new Map();                // userId -> número
 // Qué dejó afuera la vara en la última búsqueda de cada uno. Sirve para que,
 // cuando la lista sale vacía, la pantalla pueda decir CUÁNTO hay que bajarla en
 // vez de un "no encontré nada" que no ayuda a decidir. Va en un Map de módulo
@@ -87,6 +94,12 @@ function usuarioDe(url, cuenta) {
 const prefsDe = (id) => ({ ...D.PREFS_POR_DEFECTO, ...D.leer(D.rutasDe(id).preferencias, {}) });
 const estadoDe = (id) => D.leer(D.rutasDe(id).estado, { descartadas: [], vistas: [], guardadas: [], mostradas: [] });
 const guardarEstado = (id, e) => D.escribir(D.rutasDe(id).estado, e);
+// Escribir el estado sobre lo que hay AHORA, no sobre una copia de hace un rato.
+// recomendar() tarda, y el relleno de la cola corre de fondo mientras él sigue
+// tocando: guardar entera la copia que leyó al empezar se llevaba puesto un «No
+// me interesa» o una nota que llegaron en el medio. En disco, leer devuelve una
+// copia nueva cada vez, así que el choque es real.
+const anotar = (id, cambio) => { const e = estadoDe(id); cambio(e); guardarEstado(id, e); };
 
 // --- Perfil: se deriva de las puntuaciones, siempre. Fuente única de verdad. ---
 async function perfilDe(id) {
@@ -304,7 +317,23 @@ const paraElFront = (c, perfil) => ({
   probable: M.probabilidad(perfil.curva, c.confianza ?? 0),
 });
 
-async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null, maxMin = null }) {
+// A las series TMDB no les pone el id de IMDb en la ficha —a las películas sí—,
+// así que sus tarjetas linkeaban a TMDB. Vive en otro endpoint, y se pide solo
+// para lo que se MUESTRA, no para los ~120 candidatos. Queda cacheado, también
+// en la base: un id de IMDb no cambia.
+async function conImdb(items) {
+  await T.pool(items.filter(x => !x.imdb && x.kind === "tv" && x.tmdbId), 8, async (x) => {
+    const e = await T.externos("tv", x.tmdbId).catch(() => null);
+    if (e?.imdb_id) x.imdb = e.imdb_id;
+  });
+  return items;
+}
+
+// `techo`: solo sirve lo que no supera esta confianza (el relleno de la cola).
+// `vigente`: si deja de serlo, se corta la excavación y no se anota nada.
+// `minCatalogo`: pasadas por el catálogo aunque ya haya n (la cola nueva).
+// `presupuesto`: milisegundos para cavar el catálogo.
+async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null, maxMin = null, techo = Infinity, vigente = () => true, minCatalogo = 0, presupuesto = 6000 }) {
   const p = await perfilDe(id);
   if (!p) throw new Error("Todavía no cargaste tus puntuaciones.");
   const { perfil, vistas } = p;
@@ -325,7 +354,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
 
   const traer = async (ex, paginas) => {
     const [vecinos, catalogo] = await Promise.all([
-      M.candidatos(perfil, { semillas: paginas > 1 ? 45 : 28, excluir: ex, generos: generosParaSemillas, tipo, excluirGeneros }),
+      M.candidatos(perfil, { semillas: paginas > 1 ? 45 : 28, excluir: ex, generos: generosParaSemillas, tipo, excluirGeneros, votosMinimos: P?.votosMinimos }),
       M.candidatosPorPerfil(perfil, {
         excluir: ex, generos: generosParaSemillas, anioMinimo: P?.anioMinimo, paginas, tipo, excluirGeneros, maxMin, votosMinimos: P?.votosMinimos,
       }),
@@ -372,6 +401,8 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   // responder la pregunta que importa: "¿en cuánto tengo que poner la vara para
   // ver 8?" — y no solo "no hay nada".
   const rechazadas = new Map();
+  // Y las que pasan la vara pero superan el techo: mejores que lo ya mostrado.
+  const porEncima = new Set();
 
   // Puntúa un lote de candidatos y devuelve los que valen la pena mostrar
   const evaluar = async (cands) => {
@@ -382,6 +413,9 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     const deSemilla = cands.filter(c => !c.origen).slice(0, 75);
     const dePerfil = cands.filter(c => c.origen).slice(0, 60);
     const conDetalle = await enriquecer([...deSemilla, ...dePerfil]);
+    // Las series larguísimas se juzgan por cuánto dura el capítulo, y TMDB
+    // seguido no lo dice en la ficha
+    await M.completarDuracion(conDetalle, prefsEfectivas);
     let utiles = M.filtrar(conDetalle, perfil, prefsEfectivas);
     // Y fuera las que son la 2 o la 3 de una saga que él no empezó.
     const huerfanas = await M.secuelasHuerfanas(utiles, perfil);
@@ -406,8 +440,9 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     for (const c of lista) {
       const cf = c.confianza ?? 0;
       if (cf < piso) rechazadas.set(c.key, cf);
+      else if (cf > techo) porEncima.add(c.key);
     }
-    return lista.filter(c => (c.confianza ?? 0) >= piso);
+    return lista.filter(c => (c.confianza ?? 0) >= piso && (c.confianza ?? 0) <= techo);
   };
 
   // Cava por niveles hasta juntar suficientes CON CONFIANZA, no suficientes
@@ -422,8 +457,10 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     if (juntadas.size >= n) {
       const soloSemilla = [...juntadas.values()].sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
       const elegidas = M.diversificar(soloSemilla, n, 5).map(c => paraElFront(c, perfil));
-      for (const x of elegidas) if (!estado.mostradas.includes(x.key)) estado.mostradas.push(x.key);
-      guardarEstado(id, estado);
+      if (vigente()) anotar(id, (e) => {
+        e.mostradas = e.mostradas || [];
+        for (const x of elegidas) if (!e.mostradas.includes(x.key)) e.mostradas.push(x.key);
+      });
       return elegidas;
     }
   }
@@ -439,15 +476,15 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   // hasta 60 fichas: con el cache frío, diez saltos medían 21 SEGUNDOS de espera
   // mirando un botón. Ahora corta a los 6 y, como la profundidad queda guardada,
   // el clic siguiente sigue desde donde dejó en vez de empezar de nuevo.
-  const limite = Date.now() + 6000;
+  const limite = Date.now() + presupuesto;
   let cavados = 0;
-  for (let salto = 0; salto < 10 && juntadas.size < n && Date.now() < limite; salto++, cavados++) {
+  for (let salto = 0; salto < 10 && (salto < minCatalogo || juntadas.size < n) && Date.now() < limite && vigente(); salto++, cavados++) {
     sumar(await evaluar(await M.candidatosAmplios(perfil, {
       excluir: excl, generos: generosParaSemillas, anioMinimo: prefsEfectivas?.anioMinimo, tipo,
       desde: 1 + (arranque + salto) * 4, paginas: 5, excluirGeneros, maxMin, votosMinimos: prefsEfectivas?.votosMinimos,
     })));
   }
-  estado.profundidadCatalogo = arranque + cavados;
+  const profundidad = arranque + cavados;
   rr.marca("catalogo");
   const conFe = [...juntadas.values()];
   const ordenada = porConfianza
@@ -456,16 +493,21 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   // Con el orden por confianza aflojo el tope por género: si no, la diversidad
   // saltea buenas y termina raspando el fondo teniendo mejores disponibles.
   const salida = M.diversificar(ordenada, n, porConfianza ? 5 : 3).map(c => paraElFront(c, perfil));
+  // Lo pidió un relleno que ya se dio por vencido: no anota ni diagnostica nada.
+  if (!vigente()) return salida;
   // Anoto qué le prometí de cada una. Cuando la puntúe, se compara contra esto:
   // es la única medición que no está sesgada por lo que él ya había elegido ver.
-  estado.predicciones = estado.predicciones || {};
-  for (const s of salida) {
-    if (!estado.mostradas.includes(s.key)) estado.mostradas.push(s.key);
-    if (!estado.predicciones[s.key] && s.probable != null) {
-      estado.predicciones[s.key] = { prob: s.probable, titulo: s.titulo, fecha: new Date().toISOString() };
+  anotar(id, (e) => {
+    e.profundidadCatalogo = profundidad;
+    e.mostradas = e.mostradas || [];
+    e.predicciones = e.predicciones || {};
+    for (const s of salida) {
+      if (!e.mostradas.includes(s.key)) e.mostradas.push(s.key);
+      if (!e.predicciones[s.key] && s.probable != null) {
+        e.predicciones[s.key] = { prob: s.probable, titulo: s.titulo, fecha: new Date().toISOString() };
+      }
     }
-  }
-  guardarEstado(id, estado);
+  });
   rr.fin(`(${juntadas.size} candidatos)`);
   const fuera = [...rechazadas.values()].sort((a, b) => b - a);
   // La vara a la que aparecerían 8. Si no hay ni 8 abajo, la de la última que hay.
@@ -476,6 +518,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     mejorRechazada: fuera.length ? +fuera[0].toFixed(2) : null,
     varaParaOcho: paraVer(8),
     cuantasParaOcho: Math.min(8, fuera.length),
+    mejoresQueLoMostrado: porEncima.size,
   });
   return salida;
 }
@@ -486,6 +529,17 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
 // ordenado. Ahora se arma una cola larga una vez y se sirve por pedazos.
 async function recomendarEnOrden(id, opciones) {
   const { n = 8, nueva = false, generos = null, excluir = null, ...base } = opciones;
+  const firma = JSON.stringify(base);
+  // El relleno de fondo de la tanda anterior (ver abajo). Si este pedido sigue
+  // la MISMA cola, lo espera: es justamente lo que va a servir. Si es otra
+  // búsqueda, no: esperarlo igual hacía que buscar series después de un «otras»
+  // tardara 4 segundos por un relleno de "todo" que ya no servía. Se lo da por
+  // vencido, y deja de cavar y de anotar.
+  const mismaCola = !nueva && colas.get(id)?.firma === firma;
+  if (!mismaCola) generaciones.set(id, (generaciones.get(id) || 0) + 1);
+  const gen = generaciones.get(id) || 0;
+  const previo = rellenos.get(id);
+  if (mismaCola && previo?.gen === gen) await previo.promesa;   // nunca rechaza
   // Arrancar una búsqueda nueva limpia "lo ya mostrado". Antes se acumulaba para
   // siempre: a las 63 el pozo se secaba, y algo que le había interesado y no
   // marcó desaparecía sin manera de volver a encontrarlo.
@@ -511,7 +565,6 @@ async function recomendarEnOrden(id, opciones) {
   //
   // Ahora el género es una VISTA sobre la misma cola: saca las que no son del
   // género y reordena, sin inventar nada.
-  const firma = JSON.stringify(base);
   let cola = colas.get(id);
 
   if (!cola || cola.firma !== firma) {
@@ -524,7 +577,13 @@ async function recomendarEnOrden(id, opciones) {
     //
     // diversificar() rellena el final sin respetar el orden, así que reordeno:
     // la cola tiene que bajar siempre, tanda tras tanda.
-    const lista = (await recomendar(id, { ...base, n: 24 }))
+    // Con al menos una pasada por el catálogo, aunque las dos rondas de vecinos
+    // ya hayan juntado 24. Sin ella la cola se armaba con lo primero que
+    // aparecía, y más hondo había mejores: medido, después de 3 tandas el
+    // relleno encontraba 35 con más confianza que lo último mostrado y ninguna
+    // por debajo. Como ahora nada puede entrar por arriba de lo que ya está en
+    // pantalla, las buenas tienen que estar desde el principio.
+    const lista = (await recomendar(id, { ...base, n: 24, minCatalogo: 1 }))
       .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
     cola = { firma, lista, servidas: new Set(), vista: null };
     colas.set(id, cola);
@@ -536,7 +595,7 @@ async function recomendarEnOrden(id, opciones) {
   // séptima pase a estar primera, no que desaparezca por haberla visto.
   // "Mostrame otras" con el MISMO filtro sí sigue bajando, como antes.
   const vista = JSON.stringify({ generos: generos || [], excluir: excluir || [] });
-  if (cola.vista !== vista) { cola.servidas = new Set(); cola.vista = vista; }
+  if (cola.vista !== vista) { cola.servidas = new Set(); cola.vista = vista; cola.ultimoServido = null; }
 
   const pasaElFiltro = (p) => {
     const ids = p.generosIds || [];
@@ -574,10 +633,17 @@ async function recomendarEnOrden(id, opciones) {
 
   // Sin filtro y con la cola agotada: sigo abajo de lo último servido, para que
   // "mostrame otras" nunca traiga algo mejor que lo que ya ofreció.
-  if (tanda.length < n && !generos?.length && !excluir?.length) {
-    const mas = await recomendar(id, { ...base, n: 24 });
+  // Si el relleno de fondo ya buscó para esta cola y trajo poco, no se vuelve a
+  // cavar acá: es lo mismo de nuevo, y eran 6 segundos mirando el botón para
+  // sacar dos títulos más. Se sirve lo que hay y el relleno sigue buscando para
+  // el próximo clic.
+  // Con la cola vacía el tope es lo último que se sirvió, no "sin tope": así
+  // era antes, y lo nuevo podía ser mejor que la primera tarjeta —él lo vio así:
+  // "la primera cosa que me recomienden no debería irse para abajo nunca"—.
+  if (tanda.length < n && !generos?.length && !excluir?.length && !cola.yaRellenada) {
+    const tope = tanda.length ? tanda[tanda.length - 1].confianza : (cola.ultimoServido ?? Infinity);
+    const mas = await recomendar(id, { ...base, n: 24, techo: tope });
     const conocidas = new Set(cola.lista.map(x => x.key));
-    const tope = tanda.length ? tanda[tanda.length - 1].confianza : Infinity;
     cola.lista = cola.lista.concat(
       mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope)
          .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0)));
@@ -585,7 +651,62 @@ async function recomendarEnOrden(id, opciones) {
   }
 
   for (const p of tanda) cola.servidas.add(p.key);
-  return tanda;
+  if (tanda.length) cola.ultimoServido = tanda[tanda.length - 1].confianza ?? 0;
+  cola.yaRellenada = false;
+
+  // Si con esto la cola quedó sin otra tanda entera, el relleno arranca YA, de
+  // fondo, mientras él mira estas ocho. Antes arrancaba recién con el clic en
+  // "mostrame otras", y ese clic se comía entera la excavación del catálogo:
+  // 6,4 segundos medidos, con el cache caliente y en una compu rápida.
+  // Misma regla que el relleno de arriba: solo entra lo que no supera lo último
+  // servido, para que la cola siga bajando.
+  //
+  // El techo (`techo`) es el mismo que usaría el relleno de arriba en el próximo
+  // clic: lo último que queda sin servir, o —si la cola quedó vacía— lo último
+  // que se sirvió. Nada de lo que traiga puede superar lo que ya está en
+  // pantalla. Lo que se pasa no queda anotado como mostrado: sale primero en la
+  // próxima búsqueda, y la pantalla lo avisa.
+  const r = rellenos.get(id);
+  if ((!r || r.gen !== gen) && disponibles().length < n && !generos?.length && !excluir?.length) {
+    const quedan = disponibles();
+    const tope = quedan.length ? (quedan[quedan.length - 1].confianza ?? 0) : (cola.ultimoServido ?? Infinity);
+    const vigente = () => generaciones.get(id) === gen;
+    // 2,5 segundos y no 6: si por debajo del tope no hay nada, cavar más no lo
+    // cambia, y el que cliquea rápido está esperando esto.
+    const porOrden = (a, b) => (b.confianza ?? 0) - (a.confianza ?? 0);
+    const promesa = recomendar(id, { ...base, n: 2 * n, techo: tope, vigente, presupuesto: 2500 })
+      .then(async (mas) => {
+        if (!vigente() || colas.get(id) !== cola) return;   // puntuó o buscó otra cosa
+        const conocidas = new Set(cola.lista.map(x => x.key));
+        let nuevas = mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope).sort(porOrden);
+        // Nada por debajo de lo ya mostrado, pero sí por encima: la lista no se
+        // corta ahí. Arranca una sección nueva, que la pantalla separa con un
+        // cartel: lo de arriba no se mueve, y dentro de cada sección el orden
+        // siempre baja. Sin esto, «otras» se quedaba vacío a las 25 tarjetas con
+        // 15 mejores esperando, y la única salida era volver a empezar y ver las
+        // mismas 25 de nuevo.
+        // Se arma en el mismo viaje si lo de abajo no llega a una tanda entera:
+        // si no, salía una tanda de UNA tarjeta y recién el clic siguiente
+        // arrancaba la sección, con otra espera en el medio.
+        if (nuevas.length + quedan.length < n && diagnosticos.get(id)?.mejoresQueLoMostrado > 0) {
+          const ya = new Set([...conocidas, ...nuevas.map(x => x.key)]);
+          const otra = await recomendar(id, { ...base, n: 3 * n, vigente, presupuesto: 2500 });
+          if (!vigente() || colas.get(id) !== cola) return;
+          nuevas = nuevas.concat(otra.filter(x => !ya.has(x.key)).sort(porOrden)
+            .map((x, i) => (i === 0 ? { ...x, inicioSeccion: true } : x)));
+        }
+        cola.yaRellenada = true;
+        cola.lista = cola.lista.concat(nuevas);
+        conImdb(cola.lista.filter(x => !cola.servidas.has(x.key))).catch(() => {});
+      })
+      .catch((e) => console.error("[relleno]", e.message))
+      .finally(() => { if (rellenos.get(id)?.promesa === promesa) rellenos.delete(id); });
+    rellenos.set(id, { gen, promesa });
+  }
+  // El IMDb del resto de la cola, de fondo: así el próximo «otras» no espera a
+  // TMDB por eso (eran ~230 ms por tanda con series).
+  conImdb(disponibles()).catch(() => {});
+  return conImdb(tanda);
 }
 
 // --- HTTP ---
@@ -940,6 +1061,7 @@ async function manejar(req, res, url, cuenta) {
           nota: d.vote_average, resumen: d.overview, imdb: d.imdb_id || null,
         };
       })).filter(Boolean);
+      await conImdb(lista);
       return json(res, 200, { lista });
     }
 
@@ -1002,6 +1124,8 @@ async function manejar(req, res, url, cuenta) {
         };
       });
 
+      await conImdb(conFoto);
+
       const conteo = {};
       for (const x of todas) conteo[x.rating] = (conteo[x.rating] || 0) + 1;
       return json(res, 200, {
@@ -1041,6 +1165,17 @@ async function manejar(req, res, url, cuenta) {
         penalizarAnimacionOccidental: num(nuevo.penalizarAnimacionOccidental, actual.penalizarAnimacionOccidental),
         penalizarFamilia: num(nuevo.penalizarFamilia, actual.penalizarFamilia),
         penalizarSoloHablada: num(nuevo.penalizarSoloHablada, actual.penalizarSoloHablada),
+        idiomasSoloMuyBuenas: lineas(nuevo.idiomasSoloMuyBuenas ?? actual.idiomasSoloMuyBuenas).map(x => x.toLowerCase()),
+        notaMinimaIdioma: num(nuevo.notaMinimaIdioma, actual.notaMinimaIdioma),
+        votosMinimosIdioma: num(nuevo.votosMinimosIdioma, actual.votosMinimosIdioma),
+        aniosSciFiVieja: num(nuevo.aniosSciFiVieja, actual.aniosSciFiVieja),
+        notaMinimaSciFiVieja: num(nuevo.notaMinimaSciFiVieja, actual.notaMinimaSciFiVieja),
+        votosMinimosSciFiVieja: num(nuevo.votosMinimosSciFiVieja, actual.votosMinimosSciFiVieja),
+        episodiosSoloMuyBuenas: num(nuevo.episodiosSoloMuyBuenas, actual.episodiosSoloMuyBuenas),
+        minutosCapituloLargas: num(nuevo.minutosCapituloLargas, actual.minutosCapituloLargas),
+        notaMinimaLargas: num(nuevo.notaMinimaLargas, actual.notaMinimaLargas),
+        votosMinimosLargas: num(nuevo.votosMinimosLargas, actual.votosMinimosLargas),
+        penalizarMusical: num(nuevo.penalizarMusical, actual.penalizarMusical),
         confianzaMinima: num(nuevo.confianzaMinima, actual.confianzaMinima),
         evitarKeywords: lineas(nuevo.evitarKeywords),
         viendoAhora: lineas(nuevo.viendoAhora),

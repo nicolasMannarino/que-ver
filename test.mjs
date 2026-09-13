@@ -146,6 +146,13 @@ const corta = P({ kind: "tv", nota: 7.5, detalle: { anio: 2018, kwNames: [], sta
 console.log("  serie de 30 min ->", corta.ajuste.toFixed(2));
 ok(corta.ajuste > 0, "capítulos cortos suman (lo dijo por Barry)");
 
+const musical = P({ kind: "tv", nota: 7.6, detalle: { anio: 2008, kwNames: ["musical", "parody"], status: "Ended", episodios: 3, dur: 45 } });
+console.log("  un musical ->", musical.ajuste.toFixed(2), JSON.stringify(musical.notas));
+ok(musical.ajuste < 0 && musical.notas.includes("musical"), "un musical baja (Dr. Horrible)");
+ok(musical.ajuste > -1.5, "pero menos que lo de Evitar: dijo «habría que ver»");
+const teatro = P({ kind: "tv", nota: 8.0, detalle: { anio: 2016, kwNames: ["based on play or musical"], status: "Ended", episodios: 12, dur: 45 } });
+ok(!teatro.notas.includes("musical"), "«based on play or musical» no es un musical (Fleabag)");
+
 console.log("\n--- 10. Las reglas mueven el ranking de verdad ---");
 const dos = [
   { key: "tv:1", titulo: "Serie nueva en emisión", kind: "tv", votos: 90000, nota: 8.2, apoyo: 1.5,
@@ -158,6 +165,100 @@ const dos = [
 const rank = M.puntuar(dos, p, { prefs });
 console.log(rank.map(c => `  ${c.score.toFixed(2)}  ${c.titulo}  ${JSON.stringify(c.avisos)}`).join("\n"));
 ok(rank[0].titulo === "Serie terminada y corta", "a igualdad de todo lo demás, gana la terminada");
+
+console.log("\n--- 11. Series: la vara de votos y los géneros en el idioma de cada tipo ---");
+// Con votosMinimos 5000 pasaban 1061 películas y 69 series: "Serie" salía vacío.
+ok(M.pisoVotos(5000, "movie") === 5000, "a las películas la vara no les cambia");
+ok(M.pisoVotos(5000, "tv") === 547, `5000 votos de película = 547 de serie (dio ${M.pisoVotos(5000, "tv")})`);
+ok(M.pisoVotos(150, "tv") === 11, `150 de película = 11 de serie (dio ${M.pisoVotos(150, "tv")})`);
+const escalera = [30, 150, 800, 3000, 5000, 7000, 10000, 20000].map(v => M.pisoVotos(v, "tv"));
+ok(escalera.every((v, i) => i === 0 || v > escalera[i - 1]), "más vara de pelis, más vara de series: " + escalera.join(" < "));
+const serieConocida = { key: "tv:9", kind: "tv", fecha: "2019-01-01", votos: 2000, nota: 8.1, detalle: { anio: 2019 } };
+const peliIgual = { ...serieConocida, key: "movie:9", kind: "movie" };
+const pasan = M.filtrar([serieConocida, peliIgual], { colecciones: new Set() }, { votosMinimos: 5000, notaMinima: 6.4 });
+ok(pasan.length === 1 && pasan[0].kind === "tv", "con vara 5000, una serie de 2000 votos pasa y una peli de 2000 no");
+
+// Lo que aprendió de sus películas de acción tiene que valer para una serie de acción
+const accion = M.rasgos({ genres: [{ id: 10759, name: "Action & Adventure" }], first_air_date: "2015-01-01" }, "tv");
+ok(accion.features.includes("gen:28") && accion.features.includes("gen:12"), "Action & Adventure cuenta como Acción y Aventura");
+ok(accion.generosIds.includes(10759), "los ids crudos quedan: son los que usan los chips");
+ok(M.generosPara("tv", [28, 53]).join() === "10759", "a /discover/tv se le pide Acción con su id de TV, y Suspenso (que ahí no existe) no va");
+ok(M.generosPara("tv", [12], { excluyendo: true }).length === 0, "vetar Aventura no veta toda la acción de las series");
+ok(M.generosPara("movie", [28, 10759]).join() === "28,10759", "a las películas no se les toca nada");
+
+console.log("\n--- 12. Calibrar rápido da lo mismo que rearmar el perfil ---");
+// calibrar() armaba un perfil entero por título; ahora resta la parte de cada
+// uno. Tiene que dar lo mismo, con nostalgia, rasgos repetidos y títulos sin nota.
+let azar = 7;
+const dado = () => (azar = (azar * 16807) % 2147483647) / 2147483647;
+const muchas = Array.from({ length: 40 }, (_, i) => ({
+  key: "m:" + i, kind: i % 5 ? "movie" : "tv",
+  rating: 1 + Math.floor(dado() * 10),
+  nota: i % 7 ? +(5 + dado() * 4).toFixed(1) : 0,
+  motivos: i % 9 === 0 ? ["de chico"] : [],
+  features: [
+    ...new Set(Array.from({ length: 6 + Math.floor(dado() * 8) }, () => "kw:" + Math.floor(dado() * 30))),
+    "gen:" + [18, 28, 35, 16][i % 4], "gen:" + [18, 28, 35, 16][(i * 3) % 4],
+  ],
+  votos: 1000, generos: ["Drama"],
+}));
+const rapido = M.afinidadesSinCadaUna(muchas);
+const largo = muchas.map((v, i) => M.afinidad(M.perfil(muchas.filter((_, j) => j !== i)), v.features, v.nota));
+const peor = Math.max(...rapido.map((x, i) => Math.abs(x - largo[i])));
+ok(peor < 1e-9, `mismo leave-one-out que rearmar el perfil (diferencia máxima ${peor.toExponential(1)})`);
+
+console.log("\n--- 13. Series que \"solo si están muy buenas\" ---");
+// Los números son los reales de TMDB para cada una.
+const serieDe = (titulo, anio, idioma, generosIds, votos, nota, extra = {}) => ({
+  key: "tv:" + titulo, kind: "tv", titulo, fecha: anio + "-01-01", votos, nota,
+  detalle: { anio, generosIds, d: { original_language: idioma }, ...extra },
+});
+const candSeries = [
+  serieDe("Scarlet Heart", 2016, "ko", [18, 10765], 600, 8.5),
+  serieDe("Alice in Borderland", 2020, "ja", [10759, 9648], 2819, 8.1),
+  serieDe("Un anime", 2019, "ja", [16, 10759], 900, 8.5),
+  serieDe("Firefly", 2002, "en", [10759, 10765, 18], 2499, 8.3),
+  serieDe("Battlestar Galactica", 2004, "en", [10765, 10759, 18], 1848, 8.2),
+  serieDe("Merlín", 2008, "en", [10759, 18, 10765], 1192, 7.8),
+  serieDe("Stargate Atlantis", 2004, "en", [10759, 10765], 1228, 8.0),
+  serieDe("Anime viejo de ciencia ficción", 1998, "ja", [16, 10765], 1500, 8.5),
+  serieDe("Ciencia ficción nueva", 2019, "en", [10765], 900, 8.0),
+  serieDe("Roma", 2005, "en", [10759, 18], 1567, 8.2),
+  { ...serieDe("Película coreana", 2019, "ko", [18], 600, 8.5), kind: "movie", key: "movie:ko" },
+];
+const quedan = M.filtrar(candSeries, { colecciones: new Set() }, { ...PREFS_POR_DEFECTO, votosMinimos: 150 }).map(c => c.titulo);
+console.log("  pasan:", quedan.join(" · "));
+ok(!quedan.includes("Scarlet Heart"), "un K-drama con 8.5 y 600 votos no aparece: la nota sola no alcanza");
+ok(quedan.includes("Alice in Borderland"), "una japonesa de imagen real que es un éxito, sí");
+ok(quedan.includes("Un anime"), "el anime queda afuera de la regla de idioma");
+ok(quedan.includes("Película coreana"), "la regla es de series: las películas no se tocan (Parásitos le gustó)");
+ok(["Firefly", "Battlestar Galactica", "Merlín", "Stargate Atlantis"].every(t => !quedan.includes(t)),
+   "ciencia ficción vieja: ni Firefly ni Battlestar ni Merlín, que son las que dijo que no");
+ok(quedan.includes("Anime viejo de ciencia ficción"), "el anime viejo no paga lo de los efectos");
+ok(quedan.includes("Ciencia ficción nueva"), "a la ciencia ficción nueva no se le pide nada extra");
+ok(quedan.includes("Roma"), "lo viejo sin ciencia ficción no se toca: lo de Roma es una corazonada, no una regla");
+
+console.log("\n--- 14. Series larguísimas: capítulo corto y muy buena, o nada ---");
+const largas = [
+  // Sin su género de ciencia ficción, para que la saque esta regla y no la otra
+  serieDe("Supernatural", 2005, "en", [18, 9648], 8673, 8.3, { episodios: 327, dur: 45 }),
+  serieDe("La Oficina", 2005, "en", [35], 5460, 8.6, { episodios: 186, dur: 23 }),
+  serieDe("Construyendo un parque", 2009, "en", [35], 1912, 8.0, { episodios: 122, dur: 22 }),
+  serieDe("My Hero Academia", 2016, "ja", [16, 10759, 10765], 5377, 8.6, { episodios: 170, dur: 24 }),
+  serieDe("Larga sin duración", 2015, "en", [18], 5000, 8.7, { episodios: 150 }),
+  serieDe("Mad Men", 2007, "en", [18], 1587, 8.1, { episodios: 92, dur: 47 }),
+];
+const conLargas = (extra = {}) => M.filtrar(largas, { colecciones: new Set() },
+  { ...PREFS_POR_DEFECTO, votosMinimos: 150, ...extra }).map(c => c.titulo);
+const quedanLargas = conLargas();
+console.log("  pasan:", quedanLargas.join(" · "));
+ok(!quedanLargas.includes("Supernatural"), "327 capítulos de 45 minutos: no, aunque tenga 8.3");
+ok(quedanLargas.includes("La Oficina"), "186 capítulos de 23 minutos y 8.6: sí");
+ok(!quedanLargas.includes("Construyendo un parque"), "cortos pero con 8.0: no es «muuuy buena»");
+ok(quedanLargas.includes("My Hero Academia"), "el anime también pasa por esta regla, y uno muy bueno la pasa");
+ok(!quedanLargas.includes("Larga sin duración"), "si no se sabe cuánto dura el capítulo, no se puede decir que sea corto");
+ok(quedanLargas.includes("Mad Men"), "92 capítulos: solo el descuento de siempre, no la vara");
+ok(conLargas({ episodiosSoloMuyBuenas: 0 }).length === largas.length, "0 capítulos la apaga");
 
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);
