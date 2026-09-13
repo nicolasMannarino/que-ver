@@ -1189,13 +1189,21 @@ const enumerar = (xs) =>
   xs.length <= 1 ? (xs[0] || "") : xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1];
 
 // Cuánto se tiene que parecer una serie a la película que la trajo por el puente
-// para nombrarla. 0.04 son unos 3 rasgos en común; con uno solo suelto salía
-// "Uzaki-chan, porque te gustó En busca de la felicidad".
-const PARECIDO_PUENTE = 0.04;
+// para nombrarla. Cuentan solo los rasgos que dicen algo: keywords y gente.
+// Género, década e idioma los comparte medio catálogo, y con Jaccard ≥ 0.04
+// alcanzaban: "Sherlock, porque te gustó Hachiko" era drama + «friendship» +
+// inglés, y "Outer Banks, porque te gustó Hombres de honor", «diving» + inglés.
+// Con una keyword suelta salía "Uzaki-chan, porque te gustó En busca de la felicidad".
+const PARECIDO_PUENTE = 2;
+const DICE_ALGO = /^(kw|dir|wri|act):/;
+const enComun = (a, b) => {
+  const s = new Set(b);
+  return a.filter(f => DICE_ALGO.test(f) && s.has(f)).length;
+};
 
 export function motivo(c, p) {
   const semillas = c.semillas.filter(s =>
-    !s.rasgos || parecidoA(s.rasgos, c.detalle?.features || []) >= PARECIDO_PUENTE);
+    !s.rasgos || enComun(s.rasgos, c.detalle?.features || []) >= PARECIDO_PUENTE);
   const top = [...semillas].sort((a, b) => b.aporte - a.aporte).slice(0, 2).map(s => s.titulo);
   if (c.origen === "semilla") return "Del palo de " + (c.semillaTitulo || top[0]) + ", que puntuaste alto.";
   if (c.origen === "catalogo") return "No salió de ninguna tuya en particular: es de los géneros que más puntuás alto.";

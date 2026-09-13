@@ -556,8 +556,13 @@ casi no agrega y corre la escala.
 
 **«Porque te gustó» mentía en el puente.** *"Uzaki-chan, porque te gustó En busca de
 la felicidad"*: compartían una keyword suelta. Ahora una semilla que vino por el
-puente solo se nombra si se parece de verdad (Jaccard ≥ 0.04, unos 3 rasgos en
-común). Si no, la tarjeta dice qué rasgos suyos tiene.
+puente solo se nombra si se parece de verdad: **al menos 2 keywords o personas en
+común**. Si no, la tarjeta dice qué rasgos suyos tiene.
+
+El primer intento fue Jaccard ≥ 0.04, "unos 3 rasgos en común", y no alcanzaba:
+contaba igual el género, la década y el idioma, que comparte medio catálogo.
+*"Sherlock, porque te gustó Siempre a tu lado: Hachiko"* eran drama + «friendship»
++ inglés; *"Outer Banks, porque te gustó Hombres de honor"*, «diving» + inglés.
 
 **Lo que sigue sin resolver, dicho claro:** sin filtros, «Serie» es casi todo anime
 al 88%, y ahí adentro el motor no distingue Jujutsu Kaisen de High School DxD: para
