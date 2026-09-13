@@ -106,6 +106,12 @@ sus preferencias y su historial** — lo de tu viejo no se mezcla con lo tuyo.
 ofrece. Los botones:
 - **Ya la vi** → abre la tira del 1 al 10 para puntuarla en el momento. Si no la
   querés puntuar, "la vi pero no la puntúo" la saca igual y no vuelve.
+- **La dejé** → la misma caja, pero la nota es de lo que llegaste a ver y queda con
+  el motivo «la dejé», como en la pestaña Puntuar. Si la empezaste por la
+  recomendación cuenta para el marcador: dejarla es un error de la app.
+- **Estoy viendo** (solo series) → no te la vuelve a ofrecer y la anota en Mis
+  gustos → «Estoy viendo ahora». Cuando la puntúes sale de esa lista sola. No cuenta
+  para el marcador: ya la estabas mirando.
 - **No me interesa** → nunca más.
 - **Me la guardo** → a la lista de pendientes.
 

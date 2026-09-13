@@ -130,16 +130,22 @@
   }
   .conf.alta { background: #14301f; border-color: #2f6b46; color: #7fd4a8; font-weight: 600; }
   .conf.media { background: #2e2a14; border-color: #6b5f2f; color: #d8c87f; }
-  .acciones { display: flex; gap: 1px; margin-top: auto; border-top: 1px solid var(--linea); background: var(--linea); }
-  .acciones button { flex: 1; border: none; border-radius: 0; background: var(--panel); font-size: 12.5px; padding: 11px 6px; color: var(--txt2); }
+  /* De a tres por fila: con «La dejé» y «Estoy viendo» son cuatro o cinco, y en
+     una sola fila de 300px no entraban. Lo que sobra baja y se estira. */
+  .acciones { display: flex; flex-wrap: wrap; gap: 1px; margin-top: auto; border-top: 1px solid var(--linea); background: var(--linea); }
+  .acciones button { flex: 1 1 30%; border: none; border-radius: 0; background: var(--panel); font-size: 12.5px; padding: 11px 6px; color: var(--txt2); }
   /* Cada accion con su color, siempre y no solo al pasar el mouse: en un celular
-     no hay hover, asi que los tres botones se veian identicos y habia que leerlos
+     no hay hover, asi que los botones se veian identicos y habia que leerlos
      uno por uno para saber cual era cual. */
   .acciones button.vi { color: var(--ok); }
+  .acciones button.deje { color: #d9a66b; }
+  .acciones button.viendo { color: #8fb8f0; }
   .acciones button.guardar { color: var(--acento); }
   .acciones button.no { color: #d98b8b; }
   .acciones button:hover { background: var(--panel2); }
   .acciones button.vi:hover { background: rgba(74,222,128,.10); }
+  .acciones button.deje:hover { background: rgba(217,166,107,.10); }
+  .acciones button.viendo:hover { background: rgba(143,184,240,.10); }
   .acciones button.guardar:hover { background: rgba(255,184,77,.10); }
   .acciones button.no:hover { background: rgba(248,113,113,.10); }
 
@@ -284,14 +290,14 @@
     .card h3 { font-size: 16.5px; }
     .card .datos { font-size: 12px; }
 
-    /* --- Los tres botones: dos arriba, el de descartar abajo y entero --- */
+    /* --- Los botones de a dos. En series son cinco: el de descartar va abajo y
+       entero. En películas son cuatro y entran justo, sin hueco. --- */
     .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }
     .acciones button {
       min-height: 50px; font-size: 14px; font-weight: 600; padding: 12px 8px;
     }
-    .acciones button.vi { order: 1; }
-    .acciones button.guardar { order: 2; }
-    .acciones button.no { order: 3; grid-column: 1 / -1; font-weight: 500; }
+    .acciones button.no { font-weight: 500; }
+    .acciones.conViendo button.no { grid-column: 1 / -1; }
 
     /* --- Puntuar: grilla de 5x2 en vez de diez botoncitos en fila --- */
     .notas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
@@ -1163,27 +1169,44 @@ function tarjeta(p) {
   // Solo ofrezco abrirla si de verdad no entra
   if ((p.resumen || "").length < 170) verMas.classList.add("oculto");
 
-  // Panel de puntuar, oculto hasta que diga "Ya la vi".
+  // Panel de puntuar, oculto hasta que diga "Ya la vi" o "La dejé".
   // Pregunta el ORIGEN antes que la nota. Sin esto el marcador se anotaba como
   // acierto propio cualquier película que él ya hubiera visto de antes: le
   // mostraba una que ya conocía y ya le gustaba, él tocaba 9, y quedaba como si
   // la app hubiera acertado algo. Es la única parte que de verdad lo sabe.
+  // "La dejé" usa la misma caja: una recomendación empezada por acá y dejada a
+  // la mitad es justo un error que el marcador tiene que contar. Va con la nota
+  // de lo que llegó a ver y el motivo «la dejé», como en la pestaña Puntuar.
   const cajaPuntuar = document.createElement("div");
   cajaPuntuar.className = "puntuar oculto";
   let porRecomendacion = null;
+  let modo = "vi";
+  const TEXTOS = {
+    vi: {
+      preg: "¿La viste por esta recomendación, o ya la habías visto de antes?",
+      si: ["La vi por acá", "Cuenta para el marcador de aciertos."],
+      no: ["Ya la había visto", "Se guarda tu nota, pero no se la anoto como acierto: no la viste por esto."],
+      tit: "¿Qué le pondrías? Queda guardada en tus puntuaciones.",
+      salir: "La vi pero no la puntúo",
+    },
+    deje: {
+      preg: "¿La empezaste por esta recomendación, o ya la habías empezado de antes?",
+      si: ["La empecé por acá", "Cuenta para el marcador: si la dejaste, no acerté."],
+      no: ["Ya la había empezado", "Se guarda tu nota, pero no cuenta para el marcador."],
+      tit: "¿Qué le pondrías a lo que llegaste a ver? Queda con el motivo «la dejé».",
+      salir: "La dejé y no la puntúo",
+    },
+  };
 
   const preg = document.createElement("div");
   preg.className = "tit";
-  preg.textContent = "¿La viste por esta recomendación, o ya la habías visto de antes?";
   const opciones = document.createElement("div");
   opciones.className = "origen";
 
   const tit = document.createElement("div");
   tit.className = "tit";
-  tit.textContent = "¿Qué le pondrías? Queda guardada en tus puntuaciones.";
   const salir = document.createElement("button");
   salir.className = "chico";
-  salir.textContent = "La vi pero no la puntúo";
   salir.style.marginTop = "8px";
   salir.onclick = async () => { await post("/api/feedback", { key: p.key, accion: "vista" }); sacar(); };
 
@@ -1192,7 +1215,7 @@ function tarjeta(p) {
   // El origen viaja con el puntaje: el server solo cuenta para el marcador las
   // que él marcó como vistas POR la recomendación.
   paso2.append(tit, tiraDeNotas(p, null, () => { refrescar(); sacar(); },
-                                () => ({ porRecomendacion })), salir);
+                                () => ({ porRecomendacion, dejada: modo === "deje" })), salir);
 
   const elegirOrigen = (valor) => {
     porRecomendacion = valor;
@@ -1200,19 +1223,33 @@ function tarjeta(p) {
     opciones.classList.add("oculto");
     paso2.classList.remove("oculto");
   };
-  const opcion = (txt, valor, titulo) => {
+  const opcion = (valor) => {
     const b = document.createElement("button");
     b.className = "chico";
-    b.textContent = txt;
-    b.title = titulo;
     b.onclick = () => elegirOrigen(valor);
     return b;
   };
-  opciones.append(
-    opcion("La vi por acá", true, "Cuenta para el marcador de aciertos."),
-    opcion("Ya la había visto", false, "Se guarda tu nota, pero no se la anoto como acierto: no la viste por esto."),
-  );
+  const bSi = opcion(true), bNo = opcion(false);
+  opciones.append(bSi, bNo);
   cajaPuntuar.append(preg, opciones, paso2);
+
+  const pintar = () => {
+    const t = TEXTOS[modo];
+    preg.textContent = t.preg;
+    [bSi.textContent, bSi.title] = t.si;
+    [bNo.textContent, bNo.title] = t.no;
+    tit.textContent = t.tit;
+    salir.textContent = t.salir;
+  };
+  pintar();
+  // El mismo botón cierra la caja; el otro la cambia de modo sin cerrarla
+  const abrir = (m) => {
+    const abierta = !cajaPuntuar.classList.contains("oculto");
+    if (abierta && modo === m) { cajaPuntuar.classList.add("oculto"); return; }
+    modo = m;
+    pintar();
+    cajaPuntuar.classList.remove("oculto");
+  };
 
   const acc = document.createElement("div");
   acc.className = "acciones";
@@ -1222,14 +1259,28 @@ function tarjeta(p) {
     b.className = cls; b.textContent = txt; b.onclick = fn;
     return b;
   };
-  acc.append(
-    mk("Ya la vi", "vi", () => cajaPuntuar.classList.toggle("oculto")),
-    mk("No me interesa", "no", async () => { await post("/api/feedback", { key: p.key, accion: "descartar" }); sacar(); }),
+  const botones = [
+    mk("Ya la vi", "vi", () => abrir("vi")),
+    mk("La dejé", "deje", () => abrir("deje")),
+  ];
+  // "Estoy viendo", solo en series: una serie se mira durante semanas y la app no
+  // tiene cómo saberlo. La saca de las recomendaciones y la anota en Mis gustos →
+  // «Estoy viendo ahora». No cuenta para el marcador: ya la estabas mirando.
+  if (p.kind === "tv") {
+    acc.classList.add("conViendo");
+    botones.push(mk("Estoy viendo", "viendo", async () => {
+      await post("/api/feedback", { key: p.key, accion: "viendo", titulo: p.titulo });
+      sacar();
+    }));
+  }
+  botones.push(
     mk("Me la guardo", "guardar", async () => {
       await post("/api/feedback", { key: p.key, accion: "guardar" });
       sacar(); contarGuardadas();
     }),
+    mk("No me interesa", "no", async () => { await post("/api/feedback", { key: p.key, accion: "descartar" }); sacar(); }),
   );
+  acc.append(...botones);
 
   el.append(top, res, verMas, cajaPuntuar, acc);
   return el;

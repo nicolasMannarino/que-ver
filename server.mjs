@@ -1000,6 +1000,13 @@ async function manejar(req, res, url, cuenta) {
       const e = estadoDe(id);
       e.vistas = e.vistas.filter(k => k !== item.key);
       e.descartadas = e.descartadas.filter(k => k !== item.key);
+      // Y si la estaba viendo, ya no: sale de «Estoy viendo ahora». Solo se
+      // escribe si estaba, para no mandarle a la base una escritura por cada nota.
+      const rp = D.rutasDe(id).preferencias;
+      const mismo = (x) => String(x).trim().toLowerCase() === String(item.titulo || "").trim().toLowerCase();
+      if (item.titulo && (D.leer(rp, {}).viendoAhora || []).some(mismo)) {
+        A.mutar(rp, (p) => ({ ...p, viendoAhora: (p.viendoAhora || []).filter(x => !mismo(x)) }), {});
+      }
       // Si se la había recomendado, ahora sé si le acerté — pero SOLO si la vio
       // por eso. Puntuar algo que ya había visto de antes no dice nada sobre si
       // la app acierta: le mostraba una que él ya conocía y ya le gustaba, tocaba
@@ -1282,12 +1289,28 @@ async function manejar(req, res, url, cuenta) {
 
     if (url.pathname === "/api/feedback" && req.method === "POST") {
       const id = usuarioDe(url, cuenta);
-      const { key, accion } = await cuerpo(req);
+      const { key, accion, titulo } = await cuerpo(req);
       const e = estadoDe(id);
       if (accion === "descartar" && !e.descartadas.includes(key)) e.descartadas.push(key);
       if (accion === "vista" && !e.vistas.includes(key)) e.vistas.push(key);
       if (accion === "guardar" && !e.guardadas.includes(key)) e.guardadas.push(key);
       if (accion === "sacar") e.guardadas = e.guardadas.filter(k => k !== key);
+      // "Estoy viendo", desde una tarjeta: no se la vuelve a ofrecer, y va a Mis
+      // gustos → «Estoy viendo ahora», que es donde se ve y se saca. El mapeo fija
+      // ese título a ESTE id: esa lista se resuelve por nombre cada vez que se
+      // guarda, y "The Office" podía volver como la británica.
+      if (accion === "viendo" && /^(movie|tv):\d+$/.test(key || "")) {
+        if (!e.vistas.includes(key)) e.vistas.push(key);
+        const t = String(titulo || "").trim();
+        if (t) {
+          const r = D.rutasDe(id);
+          A.mutar(r.preferencias, (p) => {
+            const l = p.viendoAhora || [];
+            return l.some(x => x.toLowerCase() === t.toLowerCase()) ? p : { ...p, viendoAhora: [...l, t] };
+          }, {});
+          A.mutar(r.mapeo, (m) => ({ ...m, [t]: key }), {});
+        }
+      }
       guardarEstado(id, e);
       return json(res, 200, { ok: true });
     }
