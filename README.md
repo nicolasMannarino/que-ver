@@ -112,8 +112,9 @@ ofrece. Los botones:
 - **Estoy viendo** (solo series) → no te la vuelve a ofrecer y la anota en Mis
   gustos → «Estoy viendo ahora». Cuando la puntúes sale de esa lista sola. No cuenta
   para el marcador: ya la estabas mirando.
-- **No me interesa** → nunca más.
-- **Me la guardo** → a la lista de pendientes.
+- **No me interesa** → nunca más, y le enseña al perfil que eso no tienta.
+- **Me la guardo** → a la lista de pendientes, y le enseña que eso sí tienta
+  (ver «Lo que te tienta enseña»).
 
 **Mis puntuaciones.** Todo lo que puntuaste, con póster, título linkeado a IMDb, tu nota y la de TMDB al lado
 (para comparar), y con buscador y filtros por tipo
@@ -398,12 +399,41 @@ acumulaba sin límite: a las 63 el pozo se secaba, y algo que le había interesa
 no marcó desaparecía sin manera de volver a encontrarlo. Apretar "Dame algo para
 ver" pone todo en juego otra vez; "mostrame otras" sigue bajando sin repetir.
 
-Lo que **sí** desaparece para siempre es lo que puntuó, lo que marcó como visto y
-lo que descartó con "No me interesa".
+Lo que **sí** desaparece para siempre es lo que puntuó, lo que marcó como visto, lo
+que descartó con "No me interesa" y lo que se guardó.
 
 ## Mis guardadas
 
 Botón arriba de Recomendar. Sin esto, "Me la guardo" no llevaba a ningún lado.
+
+Lo guardado ya no vuelve a aparecer en Recomendar: está acá. Además, desde que
+guardar le enseña al perfil (abajo), una guardada se parecía a sí misma y volvía con
+más confianza de la que tiene: Una mente brillante saltaba de 74% a 83%.
+
+## Lo que te tienta enseña
+
+Él, mirando 6 recomendadas: *"quizás me gusta 1 o 2"* — La Liga de la Justicia y Una
+mente brillante, *"aunque esta se me hace que es bastante lenta"*; Forrest Gump o La
+sociedad de los poetas muertos, *"capaz, pero son MUUUY viejas"*. Lo que lo frena, el
+ritmo y la época, no está en ninguna ficha ni en MovieLens. Está en su reacción al ver
+la tarjeta, y esa reacción se tiraba: «No me interesa» solo sacaba la tarjeta, y en
+toda la historia de la app lo había usado una vez.
+
+Ahora **«Me la guardo» y «No me interesa» le enseñan al perfil.** Cada toque pesa como
+una nota medio desvío arriba o abajo de su promedio, sobre los rasgos —género, década,
+keywords— y sobre los vecinos. No mueve su media, no siembra y no calibra: el
+porcentaje de la tarjeta sigue saliendo solo de sus notas. Lo que ya puntuó no cuenta
+como reacción, y si la guardó y después la descartó, manda lo último. El perfil se
+rearma en la próxima búsqueda; la lista que está recorriendo no se reordena.
+
+Sirve igual para alguien con 15 puntuaciones: tocar veinte tarjetas es más fácil que
+puntuar veinte películas.
+
+**Lo que no se sabe todavía, dicho claro:** el peso de un toque está puesto a ojo. No
+hay con qué medirlo, porque hasta ahora las reacciones no se guardaban como señal.
+Con sus 4 de ejemplo la lista casi no cambia —salen El último samurái y Camino
+salvaje—; se va a notar con varias docenas. Cuando las haya, se mide como lo demás:
+si lo que le tentó, y después vio, le gustó más que el resto.
 
 ## El orden es una cola, no una consulta nueva
 
@@ -764,6 +794,144 @@ votos y **otra de una saga que ya puntuaste**.
 
 **5. Puntúa y diversifica**, para que ni un género ni una saga se lleven la lista.
 
+## Gente que puntúa como vos
+
+Él, después de ver Siete almas: *"teniendo casi 300 cosas puntuadas, no tenés
+recomendaciones que sepas que me van a gustar SÍ O SÍ"*. Y después: *"no solo
+basarse en actores y directores, porque no siempre me gusta TODO lo que hace un
+director y tampoco ODIO todo lo que hace otro"*, *"tiene que funcionar para alguien
+que tiene 300 puntuaciones o alguien que tiene 15"*. Lo que quiere, en sus palabras:
+que la mayoría de lo que le ofrece sea de 8 para arriba, o un 7 sólido.
+
+Siete almas es el ejemplo exacto. Salió de En busca de la felicidad, su 10: mismo
+director (Muccino), mismo protagonista (Will Smith), las dos drama. Para el motor, un
+parecido enorme. Lo que le gustó de una y no de la otra —que se entiende desde el
+principio, que no da sueño— no está en ningún campo de TMDB. Le puso 6.
+
+**Qué es.** MovieLens (Universidad de Minnesota) publica 32 millones de puntuaciones
+de 200.000 personas, hasta octubre de 2023. `armar-vecinas.py` calcula, para cada par
+de las 4.396 películas con al menos 1000 puntuaciones, cuánto se parecen las notas que
+les puso la gente que vio las dos, descontando la fama de cada película y lo generosa
+que es cada persona. Para predecir una película, `vecinas.mjs` mira a cuáles de las
+suyas se parece EN ESO y cómo las puntuó él. El director no entra por ningún lado: una
+de Muccino que no le gustó a la misma gente no se parece a En busca de la felicidad.
+
+**La nota es tres cuartos motor y un cuarto esto** (abajo, por qué no la mitad),
+llevada a la escala del motor para que la vara
+y el porcentaje de la tarjeta sigan significando lo mismo. La curva del porcentaje se
+calibra con la nota ya mezclada. Series, estrenos posteriores a 2023 y películas poco
+conocidas no están en la tabla: siguen solo con el motor, como antes.
+
+### Cómo se midió
+
+Sobre su gusto de hoy (sin «de chico» ni «no tener en cuenta») y sus películas que
+están en la tabla. Para simular a alguien con 15, 30 o 60 puntuaciones se sortean
+esas de las suyas, se arma el perfil solo con ellas y se le pide que ordene el resto.
+Se mira lo que él pidió: **de las 10 que pone arriba, cuántas terminaron en 7 o más y
+cuántas en 6 o menos**.
+
+| con | motor solo: 7+ · flojas | con un cuarto de vecinas | gana / pierde contra el motor |
+|---|---|---|---|
+| 15 | 7.8 · 2.2 | 8.2 · 1.8 | 20 / 6 de 60 sorteos |
+| 30 | 8.3 · 1.7 | 8.7 · 1.4 | 15 / 2 de 40 |
+| 60 | 8.5 · 1.5 | 9.0 · 1.0 | 11 / 0 de 30 |
+| todas | 10 · 0 | 10 · 0 | — |
+
+Con todas, las 10 de arriba ya salían bien con el motor solo (9 con 8+, ninguna
+floja): ahí la diferencia está en el resto del orden, AUC 0.717 → 0.764.
+`backtest.mjs` lo imprime al final; con las 286 de la compu da 0.772 → 0.802. El
+módulo de la app se verificó contra la medición en Python: mismo AUC del motor
+(0.717), y con la mitad de peso 0.795 contra 0.790, lo que cuesta guardar la
+similitud en un byte.
+
+**Lo que se probó y no entró:**
+
+- *Recortar la tabla a las 100 vecinas de cada película*, lo obvio para que pese
+  poco. Con todas sus notas ponía 4 flojas entre las 10 de arriba: casi ninguna de las
+  suyas quedaba entre las 100 de la candidata, y la predicción caía al promedio de la
+  gente. Va la tabla entera de las conocidas, un byte por par y solo la mitad, porque
+  es simétrica: 5.5 MB comprimida.
+- *Sacar actores y directores del motor.* Solo, le resta un poco; dentro de la mezcla
+  empata o pierde un sorteo más. Se quedaron, pero pesan un cuarto menos que antes: ese
+  cuarto de la nota no los mira.
+- *Recomendar lo que la gente puntúa alto en general.* Con 15 puntuaciones pone 2.9
+  flojas de 10, peor que el motor: hace falta personalizar aunque sea con poco.
+- *No leer sus etiquetas.* Recomendaba Pixar: la gente que ama Toy Story ama Up, y
+  eso es cierto y no le sirve. «No tener en cuenta» no opina y «de chico» opina un
+  tercio, igual que en el motor.
+
+### Una fuente nueva de candidatas
+
+Las otras salen de TMDB y traen siempre el mismo vecindario. Esta trae lo que la gente
+con su gusto puntuó alto, y la tarjeta lo dice: *"A la gente que le gustaron Hombres
+de honor y En busca de la felicidad como a vos, esta también le gustó."* No propone lo
+que sus reglas van a bajar igual —animación que no es anime, y lo anterior a
+`anioMinimo` si esa regla resta—: sin eso ofrecía Mulán y El mago de Oz, que ocupaban
+los lugares de las que sí servían.
+
+Una búsqueda tarda lo mismo que antes con el cache lleno; la primera vez que la tabla
+trae una película nueva hay que pedirle la ficha a TMDB, como a cualquier otra fuente.
+
+### Un cuarto, no la mitad
+
+La primera versión pesaba la mitad. Él la usó: *"ahora me está recomendando mucho
+romance, yo no soy fanático de eso"*, *"cambió DEMASIADO las cosas que me recomienda,
+hay algunas que capaz no estaban mal"*, *"mucho drama… hoy en día cualquiera es
+drama"*, *"encima me recomendó películas viejas"*.
+
+Tenía razón en las tres. De las 8 películas que le mostró, todas habían subido por la
+tabla: 3 anteriores a 2000 (Forrest Gump, La sociedad de los poetas muertos, Atrapado
+sin salida), 2 de romance y casi todas drama. La medición de arriba no lo podía ver:
+cuenta cuántas de las 10 de arriba le gustaron, no cuánto cambia la lista ni de qué
+géneros queda.
+
+Dos arreglos:
+
+- **El año mínimo vale para esta fuente igual que para las otras**, que se lo piden a
+  TMDB. Estaba atado a que el descuento por vieja estuviera prendido, y él lo tiene en 0.
+- **Un cuarto de la nota en vez de la mitad.** En los mismos sorteos, de las 10 de
+  arriba cuántas con 7+, y en cuántos sorteos pierde contra el motor solo:
+
+| peso | con 15 | con 30 | con 60 |
+|---|---|---|---|
+| nada (antes) | 7.8 | 8.3 | 8.5 |
+| un cuarto | 8.2 · pierde 6 de 60 | 8.7 · pierde 2 de 40 | 9.0 · pierde 0 de 30 |
+| la mitad | 8.4 · pierde 15 de 60 | 8.7 · pierde 7 de 40 | 9.2 · pierde 0 de 30 |
+
+Un cuarto se lleva casi toda la mejora y pierde contra el motor muchas menos veces.
+
+Con sus datos, en una copia de la app y con los mismos pedidos, «Película» queda casi
+como antes —El castillo vagabundo, Chihiro, Una mente brillante, Star Trek, Náufrago—
+y la tabla suma Orgullo y prejuicio: 1 de 16. Drama, 10 de 32 tarjetas contra 12
+antes. Anteriores a 2000, las 3 de Ghibli que ya salían.
+
+**Lo que queda, dicho claro:** con un cuarto, la tabla cambia poco lo que se ve. La
+mejora está en el orden fino, y hace falta el marcador para saber si se nota.
+
+**Lo que no cambia, dicho claro:**
+
+- Todo esto se midió sobre películas que él ya eligió ver: afuera va a acertar menos.
+  Lo que manda es el marcador de «La vi por acá».
+- «Serie» sin filtros sigue siendo casi todo anime: las series no están en MovieLens.
+- Nada posterior a octubre de 2023 tiene esta mitad.
+
+### Armarla y subirla
+
+MovieLens no se puede redistribuir ni usar comercialmente, así que la tabla no va al
+repo. Se baja `ml-32m.zip` de grouplens.org/datasets/movielens y:
+
+```
+python armar-vecinas.py <carpeta de ml-32m>        numpy y pandas, ~1 minuto
+node --env-file=.env subir-vecinas.mjs             a la base, para la app publicada
+```
+
+La app la busca primero en `data/vecinas.json.gz` y después en la base. Sin ninguna de
+las dos arranca igual, solo con el motor, y lo avisa al arrancar. Después de subirla,
+la app publicada la lee cuando se reinicia.
+
+En septiembre de 2026 el certificado de files.grouplens.org estaba vencido: se bajó
+sin verificarlo y se controló contra el md5 publicado (`d472be33…`).
+
 ## Publicarlo
 
 Corre igual en dos modos, y lo que decide cuál es **si existe `DATABASE_URL`**:
@@ -1021,6 +1189,9 @@ Tu lista, ya resuelta. Es la fuente de verdad: la app la edita sola cuando puntu
 | `server.mjs` | HTTP, rutas, orquestación |
 | `datos.mjs` | perfiles, store de puntuaciones, filtros, exportar |
 | `motor.mjs` | perfil de gusto, candidatos, preferencias, scoring, diversidad |
+| `vecinas.mjs` | gente que puntúa como vos: leer la tabla, predecir, proponer |
+| `armar-vecinas.py` | arma esa tabla desde MovieLens (una vez, en tu compu) |
+| `subir-vecinas.mjs` | la sube a la base para la app publicada |
 | `ratings.mjs` | los tres parsers y las variantes de búsqueda |
 | `almacen.mjs` | dónde viven los datos: archivos o Postgres, misma interfaz |
 | `auth.mjs` | cuentas, sesiones firmadas y la API key de cada uno |

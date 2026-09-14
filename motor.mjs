@@ -3,6 +3,7 @@
 // y el filtro de "ya vistas" es código, no prompt. Ese era el bug de Gemini.
 import * as T from "./tmdb.mjs";
 import { variantesBusqueda, numeroDeSecuela } from "./ratings.mjs";
+import * as V from "./vecinas.mjs";
 
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -218,7 +219,17 @@ const NOSTALGIA = new Set(["de chico", "de chica", "de pibe", "nostalgia", "de n
 const NO_CUENTA = new Set(["no cuenta", "no tener en cuenta", "no me representa"]);
 export const noCuenta = (v) => (v.motivos || []).some(x => NO_CUENTA.has(x));
 
-export function perfil(todas) {
+// Cuánto opina cada título suyo: «no tener en cuenta» nada, «de chico» un tercio.
+// Lo usa también la tabla de vecinas, para que las dos mitades de la nota lean sus
+// etiquetas igual.
+export const pesoEnPerfil = (v) =>
+  noCuenta(v) ? 0 : (v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1;
+
+// Lo que le tentó y lo que no desde la tarjeta: «Me la guardo» y «No me interesa».
+// Cada toque pesa como una nota medio desvío arriba o abajo de su promedio.
+const PESO_REACCION = 0.5;
+
+export function perfil(todas, { reacciones = [] } = {}) {
   // Lo marcado "no tener en cuenta" se va antes de calcular nada: si quedara para
   // la media o el desvío seguiría moviendo el z-score de todo lo demás.
   const vistas = todas.filter(v => !noCuenta(v));
@@ -233,6 +244,18 @@ export function perfil(todas) {
     const nostalgia = (v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1;
     const w = nostalgia * (v.rating - media) / desvio;   // z-score: +alto le gustó, -bajo no
     for (const f of v.features) {
+      pesos.set(f, (pesos.get(f) || 0) + w);
+      cuenta.set(f, (cuenta.get(f) || 0) + 1);
+    }
+  }
+  // Lo que le tentó y lo que no, sin haberla visto. Él, mirando 6 recomendadas:
+  // *"quizás me gusta 1 o 2"*, y lo que lo frenaba era el ritmo ("se me hace que es
+  // bastante lenta") y la época ("son MUUUY viejas"): nada de eso está en una ficha,
+  // pero sí en su reacción al verla. Opina sobre los rasgos —género, década,
+  // keywords— y sobre los vecinos; no mueve su media, no siembra y no calibra.
+  for (const r of reacciones) {
+    const w = PESO_REACCION * r.tienta;
+    for (const f of r.features || []) {
       pesos.set(f, (pesos.get(f) || 0) + w);
       cuenta.set(f, (cuenta.get(f) || 0) + 1);
     }
@@ -282,6 +305,9 @@ export function perfil(todas) {
     set: new Set(v.features), w: (v.rating - media) / desvio,
     titulo: v.titulo || v.d?.title || v.d?.name || v.title,
   }));
+  for (const r of reacciones) {
+    vecinos.push({ set: new Set(r.features || []), w: PESO_REACCION * r.tienta, titulo: null, reaccion: true });
+  }
 
   // Un perfil por cada motivo que él escribió, no por categorías mías. Qué
   // rasgos aparecen más en las que marcó con ese motivo que en el resto.
@@ -326,7 +352,7 @@ export function perfil(todas) {
 
   return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo, notaMedia,
            motivosUsados: [...porMotivo.entries()].map(([m, xs]) => [m, xs.length]),
-           votosMedios, durMedia, total: vistas.length };
+           votosMedios, durMedia, total: vistas.length, reacciones: reacciones.length };
 }
 
 // "¿A cuáles de las suyas se parece?" — medido con backtest contra sus propias
@@ -337,6 +363,8 @@ export function afinidadVecinos(p, features, k = 20, devolverMasParecida = false
   const mios = new Set(features);
   const sims = [];
   for (const o of p.vecinos) {
+    // "A cuál de las tuyas se parece" nombra películas que vio, no reacciones
+    if (devolverMasParecida && o.reaccion) continue;
     let inter = 0;
     for (const f of mios) if (o.set.has(f)) inter++;
     if (!inter) continue;
@@ -718,6 +746,35 @@ export async function candidatosDesde(semilla, { excluir = new Set(), paginas = 
   return [...mapa.values()];
 }
 
+// --- 3e. Lo que la gente con tu gusto puntuó alto ---
+// Las otras fuentes salen de TMDB y traen siempre el mismo vecindario (co-visitas,
+// keywords, catálogo por género). Esta sale de la tabla de vecinas: solo películas,
+// solo si hay tabla. Vienen con el id y nada más; título, fecha, póster y votos los
+// completa enriquecer() con la ficha de TMDB.
+export function candidatosVecinas(p, { excluir = new Set(), n = 30, prefs = null, excluirGeneros = null } = {}) {
+  if (!p.mezcla?.params) return [];
+  // No gastar lugares en lo que sus reglas van a bajar igual. Es la versión gruesa
+  // —la tabla sabe el año y si es animada, no la nota de TMDB ni si es familiar—;
+  // la fina la aplica preferencias() como a cualquier otra candidata.
+  const sinAnimacion = (excluirGeneros || []).includes(16);
+  const animacionNo = sinAnimacion || prefs?.penalizarAnimacionOccidental > 0 || prefs?.penalizarInfantil > 0;
+  // El año mínimo, igual que las otras fuentes, que se lo piden a TMDB
+  // (primary_release_date.gte). Primero lo ataba a que el descuento por vieja
+  // estuviera prendido; él lo tiene en 0, así que esta fuente traía Forrest Gump
+  // y clásicos del 60 que antes no aparecían. *"Encima me recomendó películas viejas."*
+  const desde = prefs?.anioMinimo || 0;
+  const filtro = ({ anio, animacion }) =>
+    !(desde && anio && anio < desde) &&
+    !(sinAnimacion && animacion) &&
+    !(animacionNo && animacion === 1);
+  return V.mejores(p.mezcla.pv, { excluir, n, filtro }).map(x => ({
+    key: "movie:" + x.tmdbId, kind: "movie", tmdbId: x.tmdbId,
+    titulo: null, fecha: "", poster: null, resumen: null, votos: 0, nota: 0,
+    apoyo: 0.6, origen: "vecinas",
+    semillas: x.porQue.map(titulo => ({ titulo, aporte: 0.6 })),
+  }));
+}
+
 // --- 3c. Fuente de fondo: el catálogo por género, paginado ---
 // Las dos fuentes de arriba son finitas: los vecinos de sus semillas y sus
 // keywords se terminan. Después de ~110 títulos ofrecidos no quedaba nada.
@@ -1045,7 +1102,7 @@ export function afinidadesSinCadaUna(vistas) {
   });
 }
 
-export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8 } = {}) {
+export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8, preds: dadas = null } = {}) {
   // Las que él sacó del perfil tampoco calibran: si no representan su gusto, no
   // pueden decidir qué significa un 78%.
   const vistas = todas.filter(v => !noCuenta(v));
@@ -1054,7 +1111,9 @@ export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8 
   // tercios de la evidencia justo donde más falta hace: arriba, donde cada
   // bloque terminaba con una sola película adentro.
   const paso = Math.max(1, Math.floor(vistas.length / muestra));
-  const preds = afinidadesSinCadaUna(vistas);
+  // `dadas`: las predicciones ya mezcladas con las vecinas (prepararMezcla), en el
+  // mismo orden que `vistas`. La curva tiene que traducir lo que de verdad ordena.
+  const preds = dadas || afinidadesSinCadaUna(vistas);
   const puntos = [];
   for (let i = 0; i < vistas.length; i += paso) {
     puntos.push({ pred: preds[i], gusto: vistas[i].rating >= 7 });
@@ -1133,6 +1192,47 @@ export function afinidad(p, features, nota = null) {
   return 0.5 * afinidadVecinos(p, features) + 0.5 * (rasgos / 3) + calidad;
 }
 
+// --- La mezcla: tres cuartos motor, un cuarto gente que puntúa como vos ---
+// El motor mira la ficha: género, keywords, director, actores. La tabla de vecinas
+// (vecinas.mjs) mira qué sintió la gente que vio lo mismo que vos. Medido sobre sus
+// notas simulando a alguien con 15, 30, 60 y todas (README, «Gente que puntúa como
+// vos»): la mezcla pone arriba menos flojas que el motor solo y casi nunca pierde.
+//
+// Se hace en la escala del motor —misma media y mismo desvío sobre sus propias
+// películas— para que la vara y la curva sigan significando lo mismo, y para que una
+// serie, que no está en la tabla y va solo con el motor, compita en pie de igualdad.
+const MIN_PARA_MEZCLAR = 10;
+const promedio = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const dispersion = (xs, m) => Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
+
+// Cuánto pesa la tabla de vecinas. Empezó en la mitad y él, usándola: *"cambió
+// DEMASIADO las cosas que me recomienda"*, *"mucho romance"*, *"mucho drama"*. Medido
+// en los mismos sorteos, un cuarto conserva casi toda la mejora y pierde muchas menos
+// veces contra el motor solo (con 15: 6 de 60 en vez de 15; con 60: ninguna).
+export const PESO_VECINAS = 0.25;
+
+export const mezclar = (q, motor, vecinas) =>
+  q.ma + q.sa * ((1 - PESO_VECINAS) * (motor - q.ma) / q.sa + PESO_VECINAS * (vecinas - q.mc) / q.sc) / q.sm;
+
+// Devuelve la tabla de vecinas de este perfil, cómo mezclar, y la predicción de cada
+// título suyo SIN su propia nota (para calibrar), en el orden de las que cuentan.
+export function prepararMezcla(todas) {
+  const vistas = todas.filter(v => !noCuenta(v));
+  const motor = afinidadesSinCadaUna(vistas);
+  const loo = [...motor];
+  const pv = V.perfilDe(vistas, pesoEnPerfil);
+  if (!pv) return { pv: null, params: null, loo };
+  const vec = V.sinCadaUna(pv);
+  const en = vistas.map((v, i) => (vec.has(v.key) ? i : -1)).filter(i => i >= 0);
+  if (en.length < MIN_PARA_MEZCLAR) return { pv: null, params: null, loo };
+  const a = en.map(i => motor[i]), c = en.map(i => vec.get(vistas[i].key));
+  const ma = promedio(a), sa = dispersion(a, ma), mc = promedio(c), sc = dispersion(c, mc);
+  const z = a.map((x, j) => (1 - PESO_VECINAS) * (x - ma) / sa + PESO_VECINAS * (c[j] - mc) / sc);
+  const params = { ma, sa, mc, sc, sm: dispersion(z, promedio(z)) };
+  for (const i of en) loo[i] = mezclar(params, motor[i], vec.get(vistas[i].key));
+  return { pv, params, loo };
+}
+
 export function puntuar(cands, p, { prefs = null } = {}) {
   const maxApoyo = Math.max(...cands.map(c => c.apoyo), 1);
   for (const c of cands) {
@@ -1140,7 +1240,12 @@ export function puntuar(cands, p, { prefs = null } = {}) {
 
     // Afinidad: mitad rasgos sueltos, mitad "a cuáles de las suyas se parece".
     // La mezcla la elegí midiendo con backtest.mjs, no a ojo.
-    const afin = afinidad(p, f, c.nota);
+    const afinMotor = afinidad(p, f, c.nota);
+    // Y si la película está en la tabla de vecinas, un cuarto eso. Series, estrenos
+    // posteriores a la tabla y lo poco conocido siguen solo con el motor.
+    const vec = p.mezcla?.params && c.kind === "movie" ? V.predecir(p.mezcla.pv, c.tmdbId) : null;
+    const afin = vec ? mezclar(p.mezcla.params, afinMotor, vec.puntaje) : afinMotor;
+    c.vecinas = vec;
     c.masParecidaTuya = afinidadVecinos(p, f, 20, true);
 
     // Acuerdo entre semillas: si salió de 4 pelis distintas que le gustaron, vale más
@@ -1171,7 +1276,7 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     // de gusto. Si no, ordenar por confianza ignoraba "nada de animación", "nada
     // viejo" y las marcas de motivo: se avisaba pero no bajaba a nadie.
     c.confianza = afin + 0.5 * pref.ajuste;
-    c.partes = { afin, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
+    c.partes = { afin, afinMotor, vecinas: vec?.puntaje ?? null, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
     c.score = (
       1.7 * apoyo +
       1.3 * acuerdo +
@@ -1205,6 +1310,14 @@ export function motivo(c, p) {
   const semillas = c.semillas.filter(s =>
     !s.rasgos || enComun(s.rasgos, c.detalle?.features || []) >= PARECIDO_PUENTE);
   const top = [...semillas].sort((a, b) => b.aporte - a.aporte).slice(0, 2).map(s => s.titulo);
+  // La trajo la tabla de vecinas: se nombran las tuyas que más empujaron, que son
+  // parecidas en lo que sintió la gente, no en quién la dirigió.
+  if (c.origen === "vecinas") {
+    const por = c.vecinas?.porQue || [];
+    return por.length
+      ? `A la gente que le ${por.length > 1 ? "gustaron" : "gustó"} ${enumerar(por)} como a vos, esta también le gustó.`
+      : "La gente que puntúa parecido a vos la puntuó alto.";
+  }
   if (c.origen === "semilla") return "Del palo de " + (c.semillaTitulo || top[0]) + ", que puntuaste alto.";
   if (c.origen === "catalogo") return "No salió de ninguna tuya en particular: es de los géneros que más puntuás alto.";
   if (c.origen === "persona") return `Otra de ${top[0]}, que aparece varias veces entre tus mejores puntajes.`;

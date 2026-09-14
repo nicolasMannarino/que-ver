@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { PREFS_POR_DEFECTO } from "./datos.mjs";
 import { parseImdbCSV, parseNotepad, mergeRatings, parseAgrupado, variantesBusqueda } from "./ratings.mjs";
 import * as M from "./motor.mjs";
+import * as V from "./vecinas.mjs";
 
 let fallos = 0;
 const ok = (cond, msg) => { console.log((cond ? "  ok  " : "FALLA ") + msg); if (!cond) fallos++; };
@@ -259,6 +260,86 @@ ok(quedanLargas.includes("My Hero Academia"), "el anime también pasa por esta r
 ok(!quedanLargas.includes("Larga sin duración"), "si no se sabe cuánto dura el capítulo, no se puede decir que sea corto");
 ok(quedanLargas.includes("Mad Men"), "92 capítulos: solo el descuento de siempre, no la vara");
 ok(conLargas({ episodiosSoloMuyBuenas: 0 }).length === largas.length, "0 capítulos la apaga");
+
+console.log("\n--- 15. Gente que puntúa como vos (tabla de vecinas) ---");
+// Una tabla de mentira armada igual que armar-vecinas.py: triángulo de arriba, fila
+// por fila, un byte por par.
+const tablaDe = (tmdb, valor) => {
+  const n = tmdb.length, tri = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) tri.push(valor(i, j));
+  return { version: 1, hasta: "2023-10", mu: 3.5, tmdb, sesgo: tmdb.map(() => 0),
+           triangulo: Buffer.from(Uint8Array.from(tri)).toString("base64") };
+};
+V.usar(tablaDe([11, 12, 13, 14, 15, 16], (i, j) => (i * 16 + j * 3) % 256));
+let bienIndexada = true;
+for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
+  if (i === j) continue;
+  const [a, b] = i < j ? [i, j] : [j, i];
+  if (V.similitud(11 + i, 11 + j) !== ((a * 16 + b * 3) % 256) / 255) bienIndexada = false;
+}
+ok(bienIndexada, "el triángulo se lee igual que lo escribe numpy, en los dos órdenes");
+
+// Dos grupos: 1-8 se parecen entre sí, 9-16 entre sí, y entre grupos nada. Le
+// gustaron las del primero y no las del segundo.
+const ids = Array.from({ length: 16 }, (_, i) => i + 1);
+V.usar(tablaDe(ids, (i, j) => ((i < 8) === (j < 8) ? 200 : 0)));
+const peli = (id, rating, extra = {}) => ({ key: "movie:" + id, kind: "movie", tmdbId: id, rating,
+  titulo: "P" + id, features: [id <= 8 ? "gen:1" : "gen:2", "kw:" + id], nota: 7, motivos: [], ...extra });
+const mias = [1, 2, 3, 4, 5, 6].map(id => peli(id, 9)).concat([9, 10, 11, 12, 13, 14].map(id => peli(id, 3)));
+const pv = V.perfilDe(mias, M.pesoEnPerfil);
+const del1 = V.predecir(pv, 7), del2 = V.predecir(pv, 15);
+console.log(`  la 7 (grupo que le gusta): ${del1.nota.toFixed(1)} · la 15 (el otro): ${del2.nota.toFixed(1)} · por qué: ${del1.porQue.join(", ")}`);
+ok(del1.nota > 7 && del2.nota < 5, "predice alto lo parecido a lo que le gustó y bajo lo parecido a lo que no");
+ok(del1.porQue.every(t => ["P1", "P2", "P3", "P4", "P5", "P6"].includes(t)), "el «por qué» nombra las suyas que le gustaron");
+const sin1 = V.sinCadaUna(pv).get("movie:1");
+const sin1Otra = V.sinCadaUna(V.perfilDe(mias.map(v => v.tmdbId === 1 ? { ...v, rating: 1 } : v), M.pesoEnPerfil)).get("movie:1");
+ok(Math.abs(sin1 - sin1Otra) < 1e-12, "la predicción de una suya no depende de la nota que le puso (dejar una afuera de verdad)");
+const ofrece = V.mejores(pv, { excluir: new Set(["movie:8"]) }).map(x => x.tmdbId);
+ok(ofrece[0] === 7 && !ofrece.includes(8) && !ofrece.some(id => id <= 6), "propone la 7 primero, respeta lo excluido y no ofrece lo ya puntuado");
+const conEtiqueta = mias.map(v => v.tmdbId === 1 ? { ...v, motivos: ["no tener en cuenta"] } : v);
+ok(V.perfilDe(conEtiqueta, M.pesoEnPerfil).fila.length === 11, "«no tener en cuenta» tampoco opina en la tabla de vecinas");
+ok(V.perfilDe(mias.slice(0, 4), M.pesoEnPerfil) === null, "con menos de 5 películas en la tabla no inventa");
+
+V.usar({ ...tablaDe(ids, (i, j) => ((i < 8) === (j < 8) ? 200 : 0)),
+         anio: ids.map(id => id === 7 ? 1960 : 2010), animacion: ids.map(id => id === 8 ? 1 : 0) });
+const pvF = V.perfilDe(mias, M.pesoEnPerfil);
+const conReglas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } },
+  { prefs: { anioMinimo: 2000, penalizarAnimacionOccidental: 1 } }).map(c => c.tmdbId);
+ok(!conReglas.includes(7) && !conReglas.includes(8), "no propone lo que sus reglas van a bajar: ni la de 1960 ni la animada");
+const sinReglas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } }).map(c => c.tmdbId);
+ok(sinReglas.includes(7) && sinReglas.includes(8), "sin esas reglas, las propone");
+
+const mz = M.prepararMezcla(mias);
+ok(mz.params && mz.loo.length === mias.length, "con la tabla, se mezcla y cada una tiene su predicción sin su nota");
+const candMz = [{ ...peli(7, 0), detalle: { features: ["gen:1", "kw:7"] }, apoyo: 1, semillas: [] },
+                { key: "tv:99", kind: "tv", tmdbId: 7, titulo: "Una serie", detalle: { features: ["gen:1"] }, nota: 7, votos: 500, apoyo: 1, semillas: [] }];
+M.puntuar(candMz, { ...M.perfil(mias), mezcla: mz });
+ok(candMz[0].vecinas && candMz[1].vecinas === null, "la película de la tabla se mezcla; la serie, aunque comparta id, va solo con el motor");
+V.usar(null);
+const sinTabla = M.prepararMezcla(mias);
+ok(sinTabla.params === null && sinTabla.loo.every((x, i) => x === M.afinidadesSinCadaUna(mias)[i]),
+   "sin tabla, la app queda exactamente como antes");
+
+console.log("\n--- 16. Lo que le tienta y lo que no, desde la tarjeta ---");
+const base16 = [
+  { key: "m:a", titulo: "A", rating: 9, features: ["gen:28", "kw:1"], votos: 9000, dur: 120 },
+  { key: "m:b", titulo: "B", rating: 8, features: ["gen:28", "kw:2"], votos: 9000, dur: 120 },
+  { key: "m:c", titulo: "C", rating: 5, features: ["gen:35", "kw:3"], votos: 9000, dur: 120 },
+  { key: "m:d", titulo: "D", rating: 6, features: ["gen:18", "kw:4"], votos: 9000, dur: 120 },
+];
+const viejaDrama = ["gen:18", "dec:1980", "kw:50"];
+const sinReaccion = M.perfil(base16);
+const noTienta = M.perfil(base16, { reacciones: [
+  { features: ["gen:18", "dec:1980", "kw:51"], tienta: -1 },
+  { features: ["gen:18", "dec:1990", "kw:52"], tienta: -1 },
+] });
+ok(M.afinidad(noTienta, viejaDrama) < M.afinidad(sinReaccion, viejaDrama), "dos «No me interesa» de dramas viejos bajan a otro drama viejo");
+ok(noTienta.media === sinReaccion.media && noTienta.desvio === sinReaccion.desvio, "no mueven su media ni su desvío");
+ok(noTienta.gustadas.length === sinReaccion.gustadas.length, "y no siembran");
+const siTienta = M.perfil(base16, { reacciones: [{ features: ["gen:878", "kw:60"], tienta: 1 }] });
+ok(M.afinidad(siTienta, ["gen:878", "kw:60", "kw:61"]) > M.afinidad(sinReaccion, ["gen:878", "kw:60", "kw:61"]),
+   "«Me la guardo» sube lo que se le parece");
+ok(M.afinidadVecinos(noTienta, viejaDrama, 20, true) === "D", "«a cuál de las tuyas se parece» nombra una que vio, no una reacción");
 
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);

@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import * as T from "./tmdb.mjs";
 import * as M from "./motor.mjs";
+import * as V from "./vecinas.mjs";
 import * as D from "./datos.mjs";
 import * as A from "./almacen.mjs";
 import * as Auth from "./auth.mjs";
@@ -24,6 +25,15 @@ fs.mkdirSync(path.join(DATA, "cache"), { recursive: true });
 
 // El almacén primero: hasta que no abrió, leer cualquier cosa devuelve vacío.
 await A.abrir();
+// La tabla de vecinas (MovieLens, ver armar-vecinas.py). Antes que cualquier perfil:
+// sin ella la app anda igual, solo con el motor, y hay que decirlo.
+{
+  const origen = await V.cargar();
+  const i = V.info();
+  console.log(i
+    ? `    vecinas: ${i.peliculas.toLocaleString("es-AR")} películas de MovieLens (hasta ${i.hasta}), desde ${origen === "archivo" ? "data/" : "la base"}`
+    : "    vecinas: no hay tabla — recomienda solo con el motor (ver README, «Gente que puntúa como vos»)");
+}
 
 const CON_LOGIN = Auth.requiereLogin();
 
@@ -121,12 +131,28 @@ async function perfilDe(id) {
     }
   }
   r.marca("fichas");
-  const perfil = M.perfil(vistas);
+  // Lo que le tentó («Me la guardo») y lo que no («No me interesa») desde la
+  // tarjeta. Lo que ya puntuó no: su nota dice más que un toque. Si la guardó y
+  // después la descartó, manda lo último.
+  const e = estadoDe(id);
+  const yaPuntuadas = new Set(puntuadas.map(x => x.key));
+  const tienta = new Map();
+  for (const k of e.guardadas || []) tienta.set(k, 1);
+  for (const k of e.descartadas || []) tienta.set(k, -1);
+  const deReaccion = [...tienta.keys()].filter(k => !yaPuntuadas.has(k) && /^(movie|tv):\d+$/.test(k))
+    .map(k => ({ key: k, kind: k.split(":")[0], tmdbId: +k.split(":")[1] }));
+  const reacciones = (await M.fichas(deReaccion)).map(f => ({ ...f, tienta: tienta.get(f.key) }));
+  r.marca("reacciones(" + reacciones.length + ")");
+  const perfil = M.perfil(vistas, { reacciones });
   perfil.kwNombres = kwNombres;
   r.marca("perfil");
   // La curva que traduce el puntaje crudo a "cuánto de esto te gustó". Tarda
   // ~300 ms y queda en memoria con el perfil.
-  perfil.curva = M.calibrar(vistas);
+  // Tres cuartos motor, un cuarto gente que puntúa como vos (vecinas.mjs). La curva se calibra
+  // con la nota ya mezclada y sin su propia puntuación: el porcentaje de la tarjeta
+  // tiene que hablar de lo que de verdad ordena.
+  perfil.mezcla = M.prepararMezcla(vistas);
+  perfil.curva = M.calibrar(vistas, Infinity, { preds: perfil.mezcla.loo });
   r.marca("calibrar");
   const entrada = { perfil, vistas };
   perfiles.set(id, entrada);
@@ -137,7 +163,10 @@ const invalidar = (id) => { perfiles.delete(id); colas.delete(id); };
 
 function excluidas(id, vistas) {
   const e = estadoDe(id);
-  const s = new Set([...e.descartadas, ...e.vistas]);
+  // Las guardadas tampoco: ya están en «Mis guardadas». Y desde que «Me la guardo»
+  // le enseña al perfil, una guardada se parecía a sí misma y volvía con más
+  // confianza de la que tiene: Una mente brillante saltaba de 74% a 83%.
+  const s = new Set([...e.descartadas, ...e.vistas, ...(e.guardadas || [])]);
   for (const v of vistas) s.add(v.key);
   return s;
 }
@@ -296,6 +325,11 @@ async function enriquecer(finalistas) {
     c.generosIds = r.generosIds;
     c.episodios = r.episodios; c.temporadas = r.temporadas; c.status = r.status;
     c.imdb = d.imdb_id || null;
+    // Las que trajo la tabla de vecinas llegan solo con el id
+    c.titulo ||= d.title || d.name;
+    c.fecha ||= d.release_date || d.first_air_date || "";
+    c.poster ||= d.poster_path; c.resumen ||= d.overview;
+    c.votos ||= d.vote_count || 0; c.nota ||= d.vote_average || 0;
     return c;
   })).filter(Boolean);
   r.marca("fichas");
@@ -361,6 +395,13 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     ]);
     const mapa = new Map(catalogo.map(c => [c.key, c]));
     for (const c of vecinos) mapa.set(c.key, c);   // si está en las dos, gana la de semillas
+    // Y lo que la gente con tu gusto puntuó alto. Va último: si otra fuente ya la
+    // trajo, esa manda en el «por qué». Solo películas: la tabla es de MovieLens.
+    if (tipo !== "tv") {
+      for (const c of M.candidatosVecinas(perfil, { excluir: ex, n: paginas > 1 ? 40 : 25, prefs: P, excluirGeneros })) {
+        if (!mapa.has(c.key)) mapa.set(c.key, c);
+      }
+    }
     return [...mapa.values()];
   };
 
@@ -411,8 +452,11 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // Cuota fija para los del catálogo: su valor está en la afinidad de rasgos,
     // que recién se calcula con los detalles.
     const deSemilla = cands.filter(c => !c.origen).slice(0, 75);
-    const dePerfil = cands.filter(c => c.origen).slice(0, 60);
-    const conDetalle = await enriquecer([...deSemilla, ...dePerfil]);
+    const dePerfil = cands.filter(c => c.origen && c.origen !== "vecinas").slice(0, 60);
+    // Las de la tabla de vecinas llegan sin votos ni nota —los pone la ficha—, así
+    // que en la pasada barata quedarían al fondo y no entrarían nunca: cupo propio.
+    const deVecinas = cands.filter(c => c.origen === "vecinas").slice(0, 40);
+    const conDetalle = await enriquecer([...deSemilla, ...dePerfil, ...deVecinas]);
     // Las series larguísimas se juzgan por cuánto dura el capítulo, y TMDB
     // seguido no lo dice en la ficha
     await M.completarDuracion(conDetalle, prefsEfectivas);
@@ -1295,6 +1339,10 @@ async function manejar(req, res, url, cuenta) {
       if (accion === "vista" && !e.vistas.includes(key)) e.vistas.push(key);
       if (accion === "guardar" && !e.guardadas.includes(key)) e.guardadas.push(key);
       if (accion === "sacar") e.guardadas = e.guardadas.filter(k => k !== key);
+      // Lo que le tentó o no le enseña al perfil (motor.perfil, «reacciones»): se
+      // rearma en la próxima búsqueda. La cola que está recorriendo no se toca, para
+      // que no se le reordene la lista mientras la mira.
+      if (["descartar", "guardar", "sacar"].includes(accion)) perfiles.delete(id);
       // "Estoy viendo", desde una tarjeta: no se la vuelve a ofrecer, y va a Mis
       // gustos → «Estoy viendo ahora», que es donde se ve y se saca. El mapeo fija
       // ese título a ESTE id: esa lista se resuelve por nombre cada vez que se

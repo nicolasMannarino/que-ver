@@ -282,8 +282,9 @@ export function cacheEscribir(clave, valor) {
   try { comprimido = zlib.gzipSync(Buffer.from(JSON.stringify(valor), "utf8")); }
   catch { return; }
   // Fuera de la cola de escritura de los datos: que guardar una ficha de TMDB
-  // no demore el guardado de una puntuacion tuya.
-  pool.query(
+  // no demore el guardado de una puntuacion tuya. Devuelve la promesa para quien
+  // SÍ necesita esperar (subir-vecinas.mjs); la app la ignora.
+  return pool.query(
     "INSERT INTO cache_tmdb (clave, valor, actualizado) VALUES ($1, $2, now()) " +
     "ON CONFLICT (clave) DO UPDATE SET valor = $2, actualizado = now()",
     [clave, comprimido],

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import * as T from "./tmdb.mjs";
 import * as M from "./motor.mjs";
 import * as D from "./datos.mjs";
+import * as V from "./vecinas.mjs";
 
 const usuario = process.argv[2] || D.listarUsuarios()[0]?.id;
 // "config.json" es la CLAVE del almacén, no una ruta: leer() ya la resuelve
@@ -91,4 +92,31 @@ const falsosPositivos = ord.slice(0, 40).filter(f => f.real <= 6).slice(0, 4);
 const falsosNegativos = ord.slice(-40).filter(f => f.real >= 9).slice(0, 4);
 for (const f of falsosPositivos) console.log(`     le habría gustado (afinidad alta) pero él le puso ${f.real}: ${f.titulo}`);
 for (const f of falsosNegativos) console.log(`     lo habría descartado pero él le puso ${f.real}: ${f.titulo}`);
+
+// Y con la gente que puntúa como vos, que es lo que ordena en la app cuando hay tabla.
+// Mismo dejar-una-afuera; lo marcado «no tener en cuenta» no entra, igual que al calibrar.
+await V.cargar();
+if (V.disponible()) {
+  const cuentan = vistas.filter(v => !M.noCuenta(v));
+  const { loo, params } = M.prepararMezcla(cuentan);
+  const soloMotor = M.afinidadesSinCadaUna(cuentan);
+  const aucDe = (pred) => {
+    let g = 0, e = 0, nb = 0, nm = 0;
+    cuentan.forEach((b, i) => { if (b.rating < 8) return; nb++;
+      cuentan.forEach((m, j) => { if (m.rating > 6) return; if (pred[i] > pred[j]) g++; else if (pred[i] === pred[j]) e++; }); });
+    cuentan.forEach(m => { if (m.rating <= 6) nm++; });
+    return (g + e / 2) / (nb * nm);
+  };
+  const arriba = (pred) => {
+    const top = cuentan.map((v, i) => [pred[i], v.rating]).sort((a, b) => b[0] - a[0]).slice(0, 10).map(x => x[1]);
+    return `${top.filter(r => r >= 8).length} con 8+, ${top.filter(r => r >= 7).length} con 7+, ${top.filter(r => r <= 6).length} con 6 o menos`;
+  };
+  console.log(`\n  Con la gente que puntúa como vos (${V.info().peliculas} películas de MovieLens):`);
+  if (!params) console.log("     muy pocas de tus películas están en la tabla: sigue solo el motor");
+  else {
+    console.log(`     AUC motor solo: ${aucDe(soloMotor).toFixed(3)} · mezclado: ${aucDe(loo).toFixed(3)}`);
+    console.log(`     las 10 de más arriba — motor solo: ${arriba(soloMotor)}`);
+    console.log(`                            mezclado:   ${arriba(loo)}`);
+  }
+}
 console.log();

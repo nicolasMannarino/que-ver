@@ -50,7 +50,7 @@ console.log("\nTest del login");
 
 // data/ propio: el server siempre usa el de su carpeta, así que corro una copia
 // del código en un directorio temporal.
-for (const f of ["server.mjs", "datos.mjs", "motor.mjs", "tmdb.mjs", "ratings.mjs", "almacen.mjs", "auth.mjs"]) {
+for (const f of ["server.mjs", "datos.mjs", "motor.mjs", "vecinas.mjs", "tmdb.mjs", "ratings.mjs", "almacen.mjs", "auth.mjs"]) {
   fs.copyFileSync(path.join(import.meta.dirname, f), path.join(CAJA, f));
 }
 fs.cpSync(path.join(import.meta.dirname, "public"), path.join(CAJA, "public"), { recursive: true });
