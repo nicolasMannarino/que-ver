@@ -11,9 +11,12 @@
 <title>Qué Ver</title>
 <style>
   :root {
-    --bg: #0e1013; --panel: #171a20; --panel2: #1e222a; --linea: #2a2f39;
-    --txt: #e8eaed; --txt2: #9aa2b1; --acento: #ffb84d; --ok: #4ade80; --no: #f87171;
-    --radio: 12px;
+    --bg: #0a0c10; --panel: #151922; --panel2: #1c212c; --linea: #2b3140;
+    --txt: #edeff4; --txt2: #97a0b2; --acento: #ffb84d; --ok: #4ade80; --no: #f87171;
+    --radio: 14px;
+    /* Una sombra sola, usada en todo lo que flota: sin ella los paneles y las
+       tarjetas son rectángulos pegados al fondo y la pantalla se lee plana. */
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -21,10 +24,34 @@
     font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 18px 16px 60px; }
 
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  /* La barra fija de arriba. Pegada, con el fondo traslúcido: al scrollear la
+     grilla se ve pasar los pósters por abajo y la marca no se va nunca.
+     Se llama .tope y no .barra porque .barra YA EXISTÍA —es la barrita de
+     progreso de importar, 6px de alto y overflow hidden— y como se declara más
+     abajo en la hoja, ganaba: la barra de arriba quedaba aplastada a 6px y no se
+     veía nada. */
+  .tope { position: sticky; top: 0; z-index: 70; background: rgba(10,12,16,.82);
+          backdrop-filter: saturate(140%) blur(10px);
+          border-bottom: 1px solid var(--linea); }
+  .topeDentro { padding: 0 16px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; flex: none; }
+  /* La marca. Era el nombre escrito con la misma tipografía que todo lo demás, así que
+     no se leía como el nombre de nada. Ahora lleva el mismo dibujo que el ícono de la
+     app —pantalla y play— y el acento parte el nombre en dos. */
+  h1.marca { display: flex; align-items: center; gap: 9px; }
+  .marcaIcono { width: 27px; height: 27px; color: var(--acento); flex: none;
+                filter: drop-shadow(0 0 9px rgba(255,184,77,.3)); }
+  .marcaTexto { font-size: 21px; font-weight: 700; letter-spacing: -0.035em; }
+  .marcaTexto b { color: var(--acento); font-weight: 700; }
+  /* Una línea de luz abajo del encabezado: es lo único que separa la marca del
+     contenido y le da algo de vida a una pantalla que es casi toda gris. */
+  header { padding: 11px 0; }
+  /* Un hilo de luz abajo de la barra: es lo único que la separa del contenido. */
+  .tope::after { content: ""; display: block; height: 1px; margin-top: -1px;
+                 background: linear-gradient(90deg, rgba(255,184,77,.5), rgba(255,184,77,.07) 42%, transparent 72%); }
   .sub { color: var(--txt2); font-size: 13px; }
   .espacio { flex: 1; }
 
@@ -42,8 +69,10 @@
   }
   button:hover:not(:disabled) { border-color: #3d4450; background: #242933; }
   button:disabled { opacity: .5; cursor: default; }
-  button.primario { background: var(--acento); color: #1a1205; border-color: var(--acento); font-weight: 600; }
-  button.primario:hover:not(:disabled) { background: #ffc76e; }
+  button.primario { background: linear-gradient(180deg, #ffc76e, var(--acento)); color: #1a1205;
+                    border-color: #e8a63c; font-weight: 600;
+                    box-shadow: 0 1px 0 rgba(255,255,255,.22) inset, 0 6px 16px -8px rgba(255,184,77,.6); }
+  button.primario:hover:not(:disabled) { background: linear-gradient(180deg, #ffd48c, #ffbe59); }
   button.chico { padding: 6px 10px; font-size: 13px; }
 
   .soloCelu { display: none; }
@@ -54,8 +83,61 @@
   }
   .tab:hover { background: none; color: var(--txt); }
   .tab.on { color: var(--acento); border-bottom-color: var(--acento); }
+  .tab::before { line-height: 1; filter: grayscale(1) opacity(.55); }
+  .tab[data-tab="rec"]::before { content: "🎬"; }
+  .tab[data-tab="bib"]::before { content: "⭐"; }
+  .tab[data-tab="pun"]::before { content: "✍️"; }
+  .tab[data-tab="gus"]::before { content: "⚙️"; }
+  .tab.on::before { filter: none; }
 
-  .panel { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); padding: 18px; margin-bottom: 16px; }
+  /* =====================================================================
+     El escritorio: barra al costado y grilla a lo ancho.
+     Antes era una sola columna de 1080: el buscador, los presets, doce
+     géneros y cuatro casillas se comían media pantalla, y para ver la
+     cuarta recomendación había que achicar el zoom del navegador. La barra
+     se queda con lo que se toca —navegar y filtrar— y le deja el alto
+     entero a los pósters. Abajo de 1000px vuelve a ser una columna, que es
+     lo que sirve en el celular.
+     ===================================================================== */
+  /* Los filtros son de Recomendar: en las otras pestañas no pintan nada.
+     Dos ids le ganan a .oculto sin necesidad de tocar el JS que lo muestra. */
+  #lateral:not([data-vista="rec"]) #pBuscar { display: none; }
+
+  @media (min-width: 1000px) {
+    .wrap { max-width: 1400px; }
+    .app { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 26px; align-items: start; }
+    /* Se queda quieta mientras la grilla scrollea: cambiar un filtro no puede
+       obligar a volver arriba de todo. */
+    .lateral { position: sticky; top: 74px; max-height: calc(100vh - 92px);
+               overflow-y: auto; overscroll-behavior: contain; padding-right: 4px;
+               scrollbar-width: thin; scrollbar-color: rgba(255,184,77,.2) transparent; }
+    .lateral .tabs { flex-direction: column; gap: 2px; border-bottom: none; margin-bottom: 14px; }
+    .lateral .tab { display: flex; align-items: center; gap: 10px; text-align: left;
+                    border-bottom: none; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+    .lateral .tab::before { font-size: 16px; }
+    .lateral .tab:hover { background: var(--panel); color: var(--txt); }
+    .lateral .tab.on { background: var(--panel2); color: var(--acento); }
+    /* El panel de búsqueda en 290px: todo en una columna, nada en fila. */
+    .lateral #pBuscar { padding: 15px; margin-bottom: 0; }
+    .lateral #pBuscar > .fila { flex-direction: column; align-items: stretch; gap: 8px; }
+    .lateral #inAnimo, .lateral #btnBuscar { width: 100%; flex: none; }
+    .lateral #btnFiltros { width: 100%; text-align: left; display: flex;
+                           align-items: center; justify-content: space-between; }
+    .lateral #cajaFiltros .fila { flex-direction: column; align-items: flex-start; gap: 10px; }
+    /* Seis pósters por fila en vez de cuatro: la tanda entera entra sin scrollear,
+       que era literalmente lo que se pedía al achicar el zoom. */
+    .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 12px; }
+    .card .tituloPie { font-size: 13px; }
+    .card .datosPie { font-size: 11.5px; }
+  }
+
+  /* Los filtros arrancan plegados en todos lados, no solo en el celular: desplegados
+     son veinte controles y empujan la primera recomendacion abajo del pliegue. */
+  #cajaFiltros.plegado { display: none; }
+  #btnFiltros { color: var(--txt2); }
+  .panel { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); padding: 20px;
+    margin-bottom: 18px; box-shadow: var(--sombra);
+    background-image: linear-gradient(180deg, rgba(255,255,255,.028), transparent 120px); }
 
   /* ---- Entrar ---- */
   /* Pantalla propia y centrada, no un formulario colgado arriba de la app: es
@@ -106,16 +188,88 @@
   .fila { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
   .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
-  .chip { padding: 7px 13px; border-radius: 999px; border: 1px solid var(--linea); background: var(--panel2); cursor: pointer; font-size: 13.5px; color: var(--txt2); }
-  .chip.on { background: var(--acento); color: #1a1205; border-color: var(--acento); font-weight: 600; }
+  .chip { padding: 7px 13px; border-radius: 999px; border: 1px solid var(--linea); background: var(--panel2); cursor: pointer; font-size: 13.5px; color: var(--txt2); transition: border-color .12s, color .12s, background .12s; }
+  .chip:hover { border-color: #46506a; color: var(--txt); }
+  .chip.on { background: var(--acento); color: #1a1205; border-color: var(--acento); font-weight: 600;
+             box-shadow: 0 0 0 3px rgba(255,184,77,.13); }
   .chip.no { background: #3a1f1f; color: #f0a0a0; border-color: #7a3a3a; font-weight: 600; text-decoration: line-through; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-  .card { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; display: flex; flex-direction: column; }
-  .card .top { display: flex; gap: 13px; padding: 13px; }
-  .card img { width: 88px; height: 132px; object-fit: cover; border-radius: 8px; background: var(--panel2); flex: none; }
+  /* Una grilla de pósters, como taste.io: la imagen ES la tarjeta. Antes era una
+     ficha de texto con una estampilla al costado, y con seis en pantalla no se
+     distinguía una de otra. Todo lo demás —motivo, resumen, botones— vive encima
+     del póster y aparece al pasar por arriba, o al tocarlo en el celular. */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; }
+  /* La tarjeta ES el póster. El título iba en una franja gris abajo, que sumaba
+     55px de alto por tarjeta sin mostrar nada que el póster no muestre: en una
+     grilla de seis columnas eso es una fila entera de pósters perdida. Ahora va
+     ENCIMA, sobre un degradado, que además es como se ven las grillas de pósters
+     en cualquier lado. */
+  .card { position: relative; background: var(--panel2); border: 1px solid var(--linea);
+          border-radius: var(--radio); overflow: hidden; box-shadow: var(--sombra);
+          aspect-ratio: 2 / 3;
+          transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease; }
+  .card:hover { transform: translateY(-4px); border-color: #48505f;
+                box-shadow: 0 2px 4px rgba(0,0,0,.5), 0 18px 34px -16px rgba(0,0,0,.85); }
+  .card .poster { position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+                  object-fit: cover; background: var(--panel2); cursor: pointer; }
+  .card .pie { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+               padding: 30px 10px 9px; pointer-events: none;
+               background: linear-gradient(to top, rgba(6,8,12,.96) 22%, rgba(6,8,12,.78) 56%, transparent); }
+  .card .tituloPie { font-size: 13.5px; font-weight: 600; line-height: 1.25; color: #fff;
+                     text-shadow: 0 1px 3px rgba(0,0,0,.6);
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .datosPie { font-size: 11.5px; color: rgba(255,255,255,.62); margin-top: 3px; }
+  .card .porQuePie { font-size: 11px; line-height: 1.3; margin-top: 4px; color: #f3cf9a;
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Arriba a la derecha, la nota que creo que le vas a poner. Ver el comentario
+     en tarjeta() para por qué no es un porcentaje. El color sale de la chance de
+     que te encante: verde es el tramo de arriba, ámbar el del medio. */
+  .card .badge { position: absolute; top: 8px; right: 8px; z-index: 2;
+                 display: flex; flex-direction: column; align-items: center; line-height: 1;
+                 min-width: 34px; padding: 5px 8px 4px; border-radius: 10px;
+                 background: rgba(10,12,16,.86); border: 1px solid var(--linea); color: var(--txt2);
+                 backdrop-filter: blur(3px); }
+  .card .badge b { font-size: 14px; font-weight: 700; font-style: normal; letter-spacing: -0.02em; }
+  .card .badge i { font-size: 8.5px; font-weight: 600; font-style: normal; opacity: .62;
+                   margin-top: 2px; letter-spacing: .02em; white-space: nowrap; }
+  .card .badge.alta { color: #7fd4a8; border-color: #2f6b46; }
+  .card .badge.media { color: #d8c87f; border-color: #6b5f2f; }
+  /* La ficha, encima del póster. overflow-x en hidden porque cualquier cosa más ancha
+     que la tarjeta abría una barra de scroll horizontal adentro, que se veía fatal. */
+  .card .detalle { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column;
+                   background: rgba(8,10,14,.97); overflow-y: auto; overflow-x: hidden;
+                   overscroll-behavior: contain; opacity: 0; visibility: hidden;
+                   transition: opacity .13s ease; }
+  .card:hover .detalle, .card.abierta .detalle { opacity: 1; visibility: visible; }
+  .card .detalle .top { display: block; padding: 10px 10px 0; }
+  .card .detalle h3 { font-size: 14px; margin-bottom: 4px; }
+  .card .detalle .datos { font-size: 11px; line-height: 1.4; margin-bottom: 7px; }
+  .card .detalle .motivo { font-size: 11px; padding: 6px 8px; line-height: 1.4; }
+  .card .detalle .avisos { font-size: 10.5px; }
+  /* El resumen entero: la ficha ya scrollea, y cortarlo en tres líneas dejaba el
+     'ver descripción completa' ocupando un renglón para no decir nada. */
+  .card .detalle .resumen, .card .detalle .resumen.corta {
+    padding: 7px 10px 0; font-size: 11px; line-height: 1.45;
+    -webkit-line-clamp: unset; display: block; overflow: visible; }
+  .card .detalle .verMas { display: none; }
+  .card .detalle .frase { padding: 8px 10px 0; font-size: 11.5px; line-height: 1.35;
+                          color: var(--acento); font-style: italic; }
+  /* La barra de scroll de la ficha. La de Windows es un bloque gris con riel claro
+     pegado al borde: en una tarjeta de 196px se ve como un error, no como parte de
+     la app. Fina, sin riel y del color del acento; se enciende cuando la usás. */
+  .card .detalle { scrollbar-width: thin; scrollbar-color: rgba(255,184,77,.25) transparent; }
+  .card .detalle::-webkit-scrollbar { width: 6px; }
+  .card .detalle::-webkit-scrollbar-track { background: transparent; }
+  .card .detalle::-webkit-scrollbar-thumb { background: rgba(255,184,77,.22); border-radius: 99px;
+                                            border: 1px solid transparent; background-clip: padding-box; }
+  .card .detalle:hover::-webkit-scrollbar-thumb { background: rgba(255,184,77,.45); background-clip: padding-box; }
+  /* Los botones quedan siempre pegados abajo, aunque el resumen sea largo. */
+  .card .detalle .acciones { margin-top: auto; position: sticky; bottom: 0; }
+  .card .detalle .acciones button { flex: 1 1 46%; font-size: 11px; padding: 8px 3px; }
+  .card .detalle .puntuar { padding: 9px 10px; }
+  .card .detalle .puntuar .tit { font-size: 11px; }
   .card .meta { min-width: 0; }
-  .card h3 { margin: 0 0 4px; font-size: 15.5px; line-height: 1.3; }
+  .card h3 { margin: 0 0 5px; font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; font-weight: 600; }
   .card .datos { color: var(--txt2); font-size: 12.5px; margin-bottom: 8px; }
   .motivo { background: rgba(255,184,77,.09); border-left: 2px solid var(--acento); padding: 7px 10px; border-radius: 0 6px 6px 0; font-size: 12.5px; color: #f0d5a8; }
   .avisos { font-size: 11.5px; color: #c9955a; margin-top: 7px; }
@@ -169,7 +323,7 @@
   .lista { border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; }
   .item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--linea); background: var(--panel); }
   .item:last-child { border-bottom: none; }
-  .item .poster { flex: none; width: 44px; height: 66px; object-fit: cover; border-radius: 6px; background: var(--panel2); }
+  .item .poster { flex: none; width: 54px; height: 81px; object-fit: cover; border-radius: 8px; background: var(--panel2); }
   .item .nota {
     flex: none; width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
     font-weight: 700; font-size: 15px; background: var(--acento); color: #1a1205;
@@ -221,18 +375,35 @@
   .resultado-busq:hover { background: var(--panel2); }
   .resultado-busq img { width: 38px; height: 57px; object-fit: cover; border-radius: 5px; background: var(--panel2); flex: none; }
   .rapidoGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-  .rapidoCard { background: var(--panel2); border: 1px solid var(--linea); border-radius: 10px; padding: 10px; display: flex; gap: 10px; }
-  .rapidoCard img { width: 52px; height: 78px; object-fit: cover; border-radius: 6px; background: var(--panel); flex: none; }
+  .rapidoCard { background: var(--panel2); border: 1px solid var(--linea); border-radius: 12px; padding: 11px;
+    display: flex; gap: 12px; box-shadow: var(--sombra); }
+  .rapidoCard img { width: 76px; height: 114px; object-fit: cover; border-radius: 8px; background: var(--panel); flex: none; }
   .rapidoCard .d { min-width: 0; flex: 1; }
-  .rapidoCard .t { font-size: 13.5px; font-weight: 500; line-height: 1.25; margin-bottom: 2px; }
+  .rapidoCard .t { font-size: 14.5px; font-weight: 600; line-height: 1.25; margin-bottom: 3px; }
   .rapidoCard .s { font-size: 11.5px; color: var(--txt2); margin-bottom: 7px; }
+  .rapidoCard .t a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--linea); }
+  .rapidoCard .t a:hover { color: var(--acento); }
+  .rapidoCard .resumen { font-size: 11.5px; color: var(--txt2); margin-bottom: 7px; cursor: pointer;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .rapidoCard .resumen.entero { -webkit-line-clamp: unset; }
   .rapidoCard .notas button { min-width: 24px; padding: 5px 0; font-size: 11.5px; }
   .rapidoCard .nover { font-size: 11.5px; padding: 4px 8px; margin-top: 6px; }
-  .masAbajo { display: block; width: 100%; margin-top: 16px; padding: 14px; font-size: 15px; font-weight: 600; }
+  .masAbajo { display: block; width: 100%; margin-top: 16px; padding: 14px; font-size: 15px; font-weight: 600;
+              border-style: dashed; color: var(--txt2); }
+  .masAbajo:hover:not(:disabled) { color: var(--acento); border-color: var(--acento); border-style: solid; }
   /* Pantalla de gustos */
   .regla { border-bottom: 1px solid var(--linea); padding: 16px 0; }
   .regla:last-child { border-bottom: none; }
-  .regla h3 { margin: 0 0 4px; font-size: 14.5px; font-weight: 600; }
+  .regla h3 { margin: 0 0 4px; font-size: 14.5px; font-weight: 600;
+              display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* Vara o descuento. Es la única diferencia que importa de verdad entre dos
+     reglas —una hace desaparecer títulos, la otra los baja de puesto— y estaba
+     enterrada en el texto de cada una. */
+  .regla .tipo { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: .05em; padding: 2px 7px; border-radius: 99px;
+                 border: 1px solid currentColor; }
+  .regla .tipo.vara { color: #e08a8a; }
+  .regla .tipo.desc { color: var(--txt2); }
   .regla p { margin: 0 0 10px; color: var(--txt2); font-size: 12.5px; }
   .regla .campos { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .regla input[type=number] { width: 90px; background: var(--panel2); border: 1px solid var(--linea); color: var(--txt); border-radius: 8px; padding: 8px 10px; font: inherit; }
@@ -253,6 +424,9 @@
     /* Lugar para la barra de abajo, que es fija */
     .wrap { padding: 14px 12px calc(76px + env(safe-area-inset-bottom)); }
     h1 { font-size: 18px; }
+    .marcaTexto { font-size: 18px; }
+    .marcaIcono { width: 23px; height: 23px; }
+    header { padding-bottom: 10px; margin-bottom: 12px; }
 
     /* --- Navegacion abajo, al alcance del pulgar --- */
     .tabs {
@@ -267,28 +441,22 @@
       padding: 8px 2px 7px; font-size: 10.5px; font-weight: 500;
       border-bottom: none; min-height: 56px; line-height: 1.2;
     }
-    .tab::before { font-size: 19px; line-height: 1; filter: grayscale(1) opacity(.55); }
-    .tab[data-tab="rec"]::before { content: "🎬"; }
-    .tab[data-tab="bib"]::before { content: "⭐"; }
-    .tab[data-tab="pun"]::before { content: "✍️"; }
-    .tab[data-tab="gus"]::before { content: "⚙️"; }
+    .tab::before { font-size: 19px; }
     .tab.on { color: var(--acento); }
     .tab.on::before { filter: none; }
 
-    /* --- Filtros plegados: el boton de buscar es lo que tiene que verse --- */
-    #cajaFiltros.plegado { display: none; }
+    /* En el celular el boton ocupa el ancho entero; plegar ya es global. */
     #btnFiltros {
       width: 100%; min-height: 46px; text-align: left; margin-bottom: 10px;
       font-weight: 600; display: flex; align-items: center; justify-content: space-between;
     }
     #pBuscar .primario { width: 100%; min-height: 48px; font-size: 15px; }
 
-    /* --- Tarjetas: poster mas grande y aire --- */
-    .grid { grid-template-columns: 1fr; gap: 12px; }
-    .card .top { padding: 14px; gap: 12px; }
-    .card img { width: 92px; height: 138px; }
-    .card h3 { font-size: 16.5px; }
-    .card .datos { font-size: 12px; }
+    /* Dos pósters por fila. A una sola columna el póster sale de 550px de alto. */
+    .grid { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+    .card .tituloPie { font-size: 13px; }
+    .card .datosPie { font-size: 11.5px; }
+    .card h3 { font-size: 15px; }
 
     /* --- Los botones de a dos. En series son cinco: el de descartar va abajo y
        entero. En películas son cuatro y entran justo, sin hueco. --- */
@@ -333,16 +501,31 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Qué Ver</h1>
+<!-- La marca tiene que estar siempre, no solo cuando estás arriba de todo: en una
+     grilla de sesenta pósters el nombre desaparecía al segundo scroll y la pantalla
+     dejaba de ser de ninguna app en particular. Barra fija, la marca a la izquierda
+     y lo de la cuenta a la derecha. -->
+<div class="tope">
+  <div class="wrap topeDentro">
+    <header>
+    <h1 class="marca">
+      <svg class="marcaIcono" viewBox="0 0 48 48" aria-hidden="true">
+        <rect x="5" y="10" width="38" height="28" rx="6" fill="none" stroke="currentColor" stroke-width="3.2"/>
+        <path d="M20 18 L31 24 L20 30 Z" fill="currentColor"/>
+      </svg>
+      <span class="marcaTexto">Qué<b>Ver</b></span>
+    </h1>
     <span class="sub" id="subtitulo"></span>
     <span class="espacio"></span>
     <select id="selUsuario" title="Perfil"></select>
     <button class="chico" id="btnNuevoUsuario" title="Agregar un perfil">+ perfil</button>
     <button class="chico oculto" id="btnCuenta" title="Tu cuenta">cuenta</button>
     <button class="chico oculto" id="btnSalir" title="Cerrar sesion">salir</button>
-  </header>
+    </header>
+  </div>
+</div>
+
+<div class="wrap">
 
   <!-- Entrar. Solo aparece cuando la app está publicada; en tu compu no existe. -->
   <div class="entrada oculto" id="pLogin">
@@ -474,6 +657,8 @@
     </div>
   </section>
 
+  <div class="app">
+  <aside class="lateral" id="lateral" data-vista="rec">
   <div class="tabs oculto" id="tabs">
     <button class="tab on" data-tab="rec">Recomendar</button>
     <button class="tab" data-tab="bib">Mis puntuaciones</button>
@@ -481,7 +666,37 @@
     <button class="tab" data-tab="gus">Mis gustos</button>
   </div>
 
+  <section class="panel oculto" id="pBuscar">
+      <div class="fila" style="margin-bottom:10px">
+        <input type="text" id="inAnimo" style="flex:1 1 260px" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara… (opcional)">
+        <button class="primario" id="btnBuscar">Dame algo para ver</button>
+        <span class="sub" id="estadoBusqueda"></span>
+      </div>
+      <div class="chips" id="chips"></div>
+      <button class="chico" id="btnFiltros" type="button">
+        <span id="txtFiltros">Más filtros</span> <span id="flechaFiltros">▾</span>
+      </button>
+      <div id="cajaFiltros" class="plegado">
+        <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
+        <div class="chips" id="chipsGenero"></div>
+        <div class="fila" style="margin-top:8px; gap:18px">
+          <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
+          <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
+          <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
+        </div>
+        <div class="fila" style="margin-top:8px; gap:8px; align-items:center">
+          <label class="interruptor"><input type="checkbox" id="usarMaxMin"> Que no dure más de</label>
+          <input type="number" id="maxMin" value="120" min="20" max="400" step="5" style="width:80px">
+          <span style="opacity:.7">minutos</span>
+          <span style="opacity:.5; font-size:12px">(en series se mide por capítulo)</span>
+        </div>
+      </div>
+      <div class="error oculto" id="errBuscar"></div>
+    </section>
+  </aside>
+
   <!-- ===== Recomendar ===== -->
+  <main class="principal">
   <div id="vistaRec">
     <div class="banda oculto" id="bandaSemilla"></div>
     <div class="banda oculto" id="bandaAcierto"></div>
@@ -511,40 +726,23 @@
       <div class="error oculto" id="errImport"></div>
     </section>
 
-    <section class="panel oculto" id="pBuscar">
-      <h2>¿Qué tenés ganas de ver?</h2>
-      <p class="ayuda">Opcional: podés no decir nada y darle directo.</p>
-      <!-- En el celular todo esto arranca plegado: son veinte controles, y lo que
-           uno quiere ver primero es el boton de buscar. En la compu no cambia. -->
-      <button class="soloCelu" id="btnFiltros" type="button">
-        <span id="txtFiltros">Filtros y ánimo</span><span id="flechaFiltros">▾</span>
-      </button>
-      <div id="cajaFiltros" class="plegado">
-        <input type="text" id="inAnimo" style="width:100%" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara...">
-        <div class="chips" id="chips"></div>
-        <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
-        <div class="chips" id="chipsGenero"></div>
-        <div class="fila" style="margin-top:8px; gap:18px">
-          <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
-          <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
-          <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
-        </div>
-        <div class="fila" style="margin-top:8px; gap:8px; align-items:center">
-          <label class="interruptor"><input type="checkbox" id="usarMaxMin"> Que no dure más de</label>
-          <input type="number" id="maxMin" value="120" min="20" max="400" step="5" style="width:80px">
-          <span style="opacity:.7">minutos</span>
-          <span style="opacity:.5; font-size:12px">(en series se mide por capítulo)</span>
-        </div>
-      </div>
-      <div class="fila">
-        <button class="primario" id="btnBuscar">Dame algo para ver</button>
-        <span class="sub" id="estadoBusqueda"></span>
-      </div>
-      <div class="error oculto" id="errBuscar"></div>
-    </section>
+    <!-- Antes esto era media pantalla: título, ayuda, texto libre, siete presets, doce
+         géneros, tres casillas y la duración, todo desplegado. Para ver la PRIMERA
+         recomendación había que scrollear. Ahora arriba queda sólo lo que se usa
+         siempre —el texto, los presets y el botón— y el resto vive atrás de «Más
+         filtros», que ya existía pero solamente en el celular. -->
 
+    <!-- Cuando todo lo que se ve cae en el mismo tramo de la curva, las tarjetas
+         muestran el mismo número y eso se lee como un error. No lo es: ahí arriba
+         el motor de verdad no distingue una de otra, y decirlo es más útil que
+         inventar decimales. -->
+    <div class="sub oculto" id="avisoTramo" style="margin-bottom:12px"></div>
     <div class="grid" id="resultados"></div>
     <div class="vacio oculto" id="vacioRec"></div>
+    <!-- Qué tiraron tus reglas en esta búsqueda. Las varas de Mis gustos hacen
+         desaparecer títulos sin dejar rastro, y así "hay cosas que me podría
+         ofrecer y nunca lo hizo" no se puede ni empezar a contestar. -->
+    <div class="sub oculto" id="descartes" style="margin-top:12px"></div>
     <button class="masAbajo oculto" id="btnMas">Mostrame otras ↓</button>
   </div>
 
@@ -592,13 +790,20 @@
     <section class="panel">
       <h2>Puntuá lo que ya viste</h2>
       <p class="ayuda">
-        Las más vistas que todavía no están en tu lista, de más a menos vista.
-        Ponele nota a las que viste y <b>saltá</b> las que no.
-        Saltarlas no las saca de las recomendaciones — al revés, no haberlas visto
-        es justamente motivo para recomendártelas.
+        Títulos conocidos que todavía no puntuaste, los que <b>más pinta que hayas
+        visto</b>: lo que más se parece a lo que ya mirás. <b>Saltá</b> las que no viste.
+        Saltarlas no las saca de las recomendaciones — al revés, no haberlas visto es
+        justamente motivo para recomendártelas.
+      </p>
+      <p class="ayuda">
+        <b>No hace falta haberla terminado.</b> Si viste capítulos sueltos de una serie
+        y te gustaba, ponele la nota igual: lo que el motor aprende es que eso te
+        atrae, no si llegaste al final. Si la empezaste y la dejaste, usá
+        <b>«la dejé»</b> y después la nota — eso vale como señal aparte.
       </p>
       <div class="fila">
         <select id="rapidoTipo">
+          <option value="">Todo</option>
           <option value="movie">Películas</option>
           <option value="tv">Series</option>
         </select>
@@ -607,6 +812,35 @@
       </div>
     </section>
     <div class="rapidoGrid" id="rapidoLista"></div>
+    <section class="panel">
+      <h2>¿Te tienta?</h2>
+      <p class="ayuda">
+        Lo mismo que te recomendaría, pero para contestar rápido. Acá <b>no hace falta
+        haberlas visto</b>: con el póster y la ficha alcanza. Cada <b>no me tienta</b> le
+        enseña algo que tus notas no pueden — vos puntuaste lo que elegiste ver, así que
+        el motor casi nunca vio un "no" tuyo, y sin ejemplos de "no" no aprende a
+        descartar.
+      </p>
+      <div class="fila">
+        <button id="btnTientaMas">Traer otras</button>
+        <span class="sub" id="tientaEstado"></span>
+      </div>
+    </section>
+    <div class="rapidoGrid" id="tientaLista"></div>
+    <section class="panel">
+      <h2>¿Le achunta?</h2>
+      <p class="ayuda">
+        El motor ordena <b>lo que ya puntuaste</b>, calculando cada título sin su propia
+        nota. Si arriba están tus 9 y tus 10, anda. Si aparece un 5 en el puesto 3, no.
+        Es la única forma de probarlo: en las recomendaciones nunca vas a ver algo que ya
+        viste, así que ahí no tenés con qué comparar.
+      </p>
+      <div class="fila">
+        <button id="btnValidar">Probar con mis puntuaciones</button>
+        <span class="sub" id="validarEstado"></span>
+      </div>
+      <div id="validarLista"></div>
+    </section>
   </div>
 
   <!-- ===== Mis gustos ===== -->
@@ -614,29 +848,24 @@
     <section class="panel">
       <h2>Mis gustos</h2>
       <p class="ayuda">
-        Esto es lo que el motor aplica además de tus puntuaciones. Tus notas le enseñan
-        <b>qué</b> te gusta; estas reglas le dicen <b>qué no mostrarte</b>. Cambiás y guardás:
-        la próxima búsqueda ya sale distinta.
+        Tus puntuaciones le enseñan <b>qué</b> te gusta. Acá le decís <b>qué no mostrarte</b>:
+        las cosas que uno sabe de sí mismo y que no se deducen de una lista de notas.
+        Todo arranca <b>apagado</b> salvo el piso de calidad: si no tocás nada, el motor va
+        solamente con lo que puntuaste. Cambiás, guardás, y la próxima búsqueda sale distinta.
+      </p>
+      <p class="ayuda">
+        Hay dos clases de regla, y la diferencia importa: <b>varas</b> —lo que no las pasa
+        <b>no aparece nunca</b>— y <b>descuentos</b> —baja de puesto, pero puede salir igual si
+        nada mejor compite—. Abajo de cada búsqueda te digo cuántos títulos tiró cada vara,
+        así sabés si te estás quedando corto por esto y no porque no haya nada más.
       </p>
 
       <div class="regla">
-        <h3>Películas viejas</h3>
-        <p>Dijiste que las anteriores al 2000 te cuestan salvo que sean muy buenas. Así que
-           no restan puntos: directamente no aparecen si no llegan a la nota.</p>
-        <div class="campos">
-          <span>Anteriores a</span>
-          <input type="number" id="gAnio" min="1900" max="2030" step="1">
-          <span>solo si tienen nota TMDB de</span>
-          <input type="number" id="gNotaVieja" min="0" max="10" step="0.1">
-          <span>o más</span>
-        </div>
-      </div>
-
-      <div class="regla">
-        <h3>Calidad mínima</h3>
-        <p>El piso para cualquier recomendación. Sin esto la lista arrancaba bien y se caía
-           a pique en el puesto 5, porque cuando quedan pocos candidatos el relleno es
-           cualquier cosa. Si te quedan pocas opciones, bajalo.</p>
+        <h3>Calidad mínima <span class="tipo vara">vara</span></h3>
+        <p>El piso para cualquier recomendación, con la nota y los votos de TMDB. Es lo único
+           que viene prendido: cuando quedan pocos candidatos, lo que rellena la lista es
+           cualquier cosa. Pocos votos casi siempre significa que nadie la vio, no que sea
+           una joya escondida. Si te quedan pocas opciones, bajalo.</p>
         <div class="campos">
           <span>Nota TMDB de</span>
           <input type="number" id="gNotaMin" min="0" max="10" step="0.1">
@@ -647,8 +876,36 @@
       </div>
 
       <div class="regla">
-        <h3>Series</h3>
-        <p>Preferís las terminadas y que no sean eternas.</p>
+        <h3>Qué tan exigente <span class="tipo vara">vara</span></h3>
+        <p>Cuánta confianza le pedís al motor para mostrarte algo. Debajo de esto
+           <b>no te muestra nada</b>, aunque la lista quede corta: es la diferencia entre
+           doce buenas y treinta con relleno. Si te quedás sin opciones, bajala; si te
+           aparece relleno, subila.</p>
+        <div class="campos">
+          <span>No mostrar nada abajo de</span>
+          <input type="number" id="gConfMin" min="0" max="3" step="0.05">
+          <span>de confianza</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Películas viejas <span class="tipo vara">vara</span></h3>
+        <p>Si las viejas te cuestan salvo que sean muy buenas, poné desde qué año contás
+           «vieja» y qué nota les vas a exigir. Con la nota en <b>0</b> la regla está apagada
+           y una del 70 compite de igual a igual.</p>
+        <div class="campos">
+          <span>Anteriores a</span>
+          <input type="number" id="gAnio" min="1900" max="2030" step="1">
+          <span>solo si tienen nota TMDB de</span>
+          <input type="number" id="gNotaVieja" min="0" max="10" step="0.1">
+          <span>o más (0 la apaga)</span>
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Series: terminadas y no eternas <span class="tipo desc">descuento</span></h3>
+        <p>Si preferís empezar algo que ya tiene final, y que no sean doscientos capítulos.
+           Bajan de puesto, no desaparecen.</p>
         <div class="campos">
           <label class="interruptor"><input type="checkbox" id="gTerminadas"> Bajar las que siguen al aire</label>
           <span>· Empezar a penalizar arriba de</span>
@@ -658,16 +915,15 @@
       </div>
 
       <div class="regla">
-        <h3>Series que tienen que estar muy buenas</h3>
-        <p>Las coreanas, chinas y japonesas que no son anime no solés mirarlas salvo que
-           estén muy buenas, y la ciencia ficción vieja te cuesta por los efectos. Para
-           esas dos no alcanza con la nota —TMDB le pone 8.5 a cualquier K-drama con 600
-           votos—: tienen que tener <b>nota y votos</b>, y si no, no aparecen. El anime no entra.<br>
-           Las larguísimas, igual: con tantos capítulos te cuesta arrancar, salvo que sean de
-           capítulos cortos y estén muy buenas. Acá el anime sí entra.</p>
+        <h3>Las que tienen que estar muy buenas <span class="tipo vara">vara</span></h3>
+        <p>Tres casos donde no alcanza con la nota. La nota sola miente cuando hay pocos
+           votos —TMDB le pone 8.5 a cualquier serie de nicho con 600—, así que acá se piden
+           <b>nota y votos</b> juntos, y lo que no llega no aparece.
+           <b>El anime queda exento</b> de las dos primeras: si mirás anime es lo que sí querés
+           ver, y en dibujo los efectos no envejecen.</p>
         <div class="campos">
-          <span>Idiomas (códigos de TMDB)</span>
-          <input type="text" id="gIdiomas" style="width:9em">
+          <span>Series en estos idiomas (códigos de TMDB: ko, ja, zh…)</span>
+          <input type="text" id="gIdiomas" style="width:9em" placeholder="vacío = ninguno">
           <span>solo con nota de</span>
           <input type="number" id="gIdiomaNota" min="0" max="10" step="0.1">
           <span>y</span>
@@ -684,7 +940,7 @@
           <span>votos (0 años la apaga)</span>
         </div>
         <div class="campos">
-          <span>De más de</span>
+          <span>Series de más de</span>
           <input type="number" id="gLargasEps" min="0" max="5000" step="10">
           <span>capítulos, solo si duran</span>
           <input type="number" id="gLargasMin" min="0" max="200" step="5">
@@ -697,56 +953,35 @@
       </div>
 
       <div class="regla">
-        <h3>Musicales</h3>
-        <p>Dijiste que mucho no te gustan, pero que habría que ver. Así que no desaparecen:
-           bajan. Cuenta la etiqueta «musical» de TMDB, no el género Música, que también es
-           Whiplash.</p>
+        <h3>Animación infantil <span class="tipo desc">descuento</span></h3>
+        <p>Si tus mejores notas de animación son de la infancia, el motor lo lee como
+           «le encanta el catálogo Disney» y te lo trae entero. Acá se compensa.
+           <b>El anime está exento a propósito.</b> 0 = mostrármelas igual.</p>
+        <div class="campos">
+          <span>Cuánto le resto</span>
+          <input type="number" id="gInfantil" min="0" max="5" step="0.1">
+        </div>
+      </div>
+
+      <div class="regla">
+        <h3>Musicales <span class="tipo desc">descuento</span></h3>
+        <p>Cuenta la etiqueta «musical» de TMDB, no el género Música — que también mete
+           películas sobre músicos que de musical no tienen nada. 0 = que den igual.</p>
         <div class="campos">
           <span>Restarles</span>
           <input type="number" id="gMusical" min="0" max="3" step="0.1">
-          <span>(0 = que den igual)</span>
         </div>
       </div>
 
       <div class="regla">
-        <h3>Nada que se repita ni se cuente desordenado</h3>
-        <p>Por Memento, que puntuaste 1, y el día de la marmota. Ojo: esto <b>no</b> incluye
-           los giros finales, que sí te gustan (El Gran Truco 8, Los sospechosos de siempre 8).
-           Una etiqueta por línea, en inglés, que es como las tiene TMDB.</p>
-        <textarea id="gEvitar" style="width:100%"></textarea>
-      </div>
-
-      <div class="regla">
-        <h3>Qué tan exigente</h3>
-        <p>La vara. Debajo de esto <b>no te muestro nada</b>, aunque la lista quede corta.
-           Es la diferencia entre 12 buenas y 30 con relleno.<br>
-           <b>Estaba escrita y no la leía nadie:</b> el filtro era "mayor a 0" a mano, así que
-           entraba cualquier cosa que no fuera negativa. Medido pidiendo 60: de 30 tarjetas
-           que salían, <b>18 estaban abajo de 0.3</b>. Con la vara en 0.3 quedan 12, y las 12
-           son de la banda del 94%.<br>
-           Si te quedan pocas y querés ver más, bajala. Si te aparece relleno, subila.</p>
-        <div class="campos">
-          <span>No mostrar nada abajo de</span>
-          <input type="number" id="gConfMin" min="0" max="3" step="0.05">
-          <span>de confianza</span>
-        </div>
-      </div>
-
-      <div class="regla">
-        <h3>Drama hablado y nada más</h3>
-        <p>Dijiste que si es 100% hablada, sin un poquito de acción o alguna cosita más,
-           es difícil que te guste. Baja lo que <b>solo</b> es drama, romance, historia o
-           documental: sin acción, aventura, ciencia ficción, fantasía, suspenso, terror,
-           crimen ni misterio.<br>
-           <b>Crimen y misterio cuentan como movimiento</b>, así que las estafas y los giros
-           (Nueve Reinas, El secreto de sus ojos) no se tocan. <b>Comedia, animación y
-           familia tampoco</b>: una comedia no es un drama hablado, y esas dos ya tienen
-           su propia regla acá abajo.<br>
-           <b>Aviso honesto:</b> esto no sale de tus notas, sale de lo que dijiste. Sobre
-           tus 284 la regla toca 17 títulos y ahí empatás 6 a 6: frena El gran Gatsby (2),
-           Los Fabelman (2), Oppenheimer (5) y Así nos ven (6), pero también bajaría
-           En Busca de la Felicidad (10), Hombres de honor (10) y Chernobyl (8).
-           Si te está sacando cosas que querías ver, ponelo en 0.</p>
+        <h3>Drama hablado y nada más <span class="tipo desc">descuento</span></h3>
+        <p>Baja lo que es <b>solo</b> drama, romance, historia o documental: sin acción,
+           aventura, ciencia ficción, fantasía, suspenso, terror, crimen ni misterio.
+           Crimen y misterio cuentan como movimiento, así que las estafas y los giros no se
+           tocan; comedia, animación y familia tampoco.<br>
+           <b>Aviso:</b> el género captura muy mal esta idea — hay dramas de puro diálogo que
+           son buenísimos. Viene en 0. Si la prendés, fijate si te empieza a faltar algo que
+           sí querías ver.</p>
         <div class="campos">
           <span>Cuánto le resto</span>
           <input type="number" id="gHablada" min="0" max="5" step="0.1">
@@ -754,13 +989,11 @@
       </div>
 
       <div class="regla">
-        <h3>Animación infantil</h3>
-        <p>Tus dieces de animación son de la infancia (Toy Story, Air Bud) y arrastraban todo
-           el catálogo Disney. <b>El anime está exento a propósito.</b> 0 = mostrármelas igual.</p>
-        <div class="campos">
-          <span>Cuánto le resto</span>
-          <input type="number" id="gInfantil" min="0" max="5" step="0.1">
-        </div>
+        <h3>Etiquetas que no querés ver <span class="tipo desc">descuento</span></h3>
+        <p>Recursos concretos que te arruinan una película: bucles temporales, amnesia,
+           found footage, lo que sea. Una etiqueta por línea, <b>en inglés</b>, que es como
+           las tiene TMDB. Vacío = no baja nada.</p>
+        <textarea id="gEvitar" style="width:100%" placeholder="time loop"></textarea>
       </div>
 
       <div class="regla">
@@ -780,7 +1013,7 @@
         <h3>Notas sueltas</h3>
         <p>Para lo que no entra en ninguna regla — que te tiene que enganchar en 20 minutos,
            que hace rato no ves nada que te vuele la cabeza. <b>El motor todavía no las usa</b>,
-           quedan acá para que no se pierdan y para que decidamos qué convertir en regla.</p>
+           quedan acá para no perderlas y para decidir qué vale la pena convertir en regla.</p>
         <textarea id="gNotas" style="width:100%"></textarea>
       </div>
 
@@ -789,6 +1022,9 @@
         <span class="sub" id="estadoGustos"></span>
       </div>
     </section>
+  </div>
+
+  </main>
   </div>
 
   <div class="pie" id="pie"></div>
@@ -838,6 +1074,39 @@ const GENEROS = [
 ];
 
 /* ---------- Puntuar: la tira del 1 al 10, reusable ---------- */
+// Mandar una nota. La usan la tira del 1 al 10 y los botones rápidos: un solo lugar
+// que sepa qué se le manda al server cuando puntuás algo.
+async function mandarNota(item, n, alPuntuar, extras) {
+  await post("/api/puntuar", {
+    key: item.key, kind: item.kind, tmdbId: item.tmdbId,
+    titulo: item.titulo, anio: item.anio, rating: n,
+    ...(extras ? extras() : {}),
+  });
+  alPuntuar?.(n);
+  cargarAcierto();
+  contarGuardadas();
+}
+
+// Tres botones en vez de elegir un número entre diez. Es lo que hace taste.io, y es
+// por lo que ahí se cargan cien títulos en el rato que acá llevaban veinte: la nota
+// exacta importa poco —el motor trabaja con cuánto se despega de tu promedio, no con
+// el número— y la fricción de elegir entre diez importa mucho. La tira del 1 al 10
+// queda abajo para lo que quieras matizar.
+const NOTAS_RAPIDAS = [["me encantó", 9], ["me gustó", 7], ["no me gustó", 4]];
+function botonesRapidos(item, alPuntuar, extras) {
+  const cont = document.createElement("div");
+  cont.className = "fila";
+  cont.style.cssText = "gap:6px; margin-top:6px";
+  for (const [txt, n] of NOTAS_RAPIDAS) {
+    const b = document.createElement("button");
+    b.className = "chico";
+    b.textContent = txt;
+    b.onclick = (ev) => { ev.stopPropagation(); mandarNota(item, n, alPuntuar, extras); };
+    cont.appendChild(b);
+  }
+  return cont;
+}
+
 function tiraDeNotas(item, actual, alPuntuar, extras) {
   const cont = document.createElement("div");
   cont.className = "notas";
@@ -845,17 +1114,7 @@ function tiraDeNotas(item, actual, alPuntuar, extras) {
     const b = document.createElement("button");
     b.textContent = n;
     if (actual === n) b.classList.add("on");
-    b.onclick = async (ev) => {
-      ev.stopPropagation();
-      await post("/api/puntuar", {
-        key: item.key, kind: item.kind, tmdbId: item.tmdbId,
-        titulo: item.titulo, anio: item.anio, rating: n,
-        ...(extras ? extras() : {}),
-      });
-      alPuntuar?.(n);
-      cargarAcierto();
-contarGuardadas();
-    };
+    b.onclick = (ev) => { ev.stopPropagation(); mandarNota(item, n, alPuntuar, extras); };
     cont.appendChild(b);
   }
   return cont;
@@ -866,6 +1125,8 @@ document.querySelectorAll(".tab").forEach(t => {
   t.onclick = () => {
     document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
     const cual = t.dataset.tab;
+    // La barra lateral muestra los filtros solo en Recomendar (regla en el CSS).
+    $("#lateral").dataset.vista = cual;
     $("#vistaRec").classList.toggle("oculto", cual !== "rec");
     $("#vistaBib").classList.toggle("oculto", cual !== "bib");
     $("#vistaPun").classList.toggle("oculto", cual !== "pun");
@@ -873,6 +1134,7 @@ document.querySelectorAll(".tab").forEach(t => {
     if (cual === "bib") cargarBiblioteca();
     if (cual === "gus") cargarGustos();
     if (cual === "pun" && !$("#rapidoLista").children.length) cargarRapido();
+    if (cual === "pun" && !$("#tientaLista").children.length) cargarTienta();
     window.scrollTo({ top: 0 });
   };
 });
@@ -1076,7 +1338,7 @@ function pintarChips() {
   marcarFiltrosActivos();
 }
 
-function tarjeta(p) {
+function tarjeta(p, { guardada = false, puesto = null } = {}) {
   const el = document.createElement("div");
   el.className = "card";
   const esTv = p.kind === "tv";
@@ -1087,7 +1349,8 @@ function tarjeta(p) {
     : (p.duracion ? p.duracion + " min" : "");
   const datos = [esTv ? "Serie" : "Película", p.anio || "", largo,
                  esTv ? (terminada ? "terminada" : "en emisión") : "",
-                 (p.generos || []).slice(0, 2).join(", ")].filter(Boolean).join(" · ");
+                 (p.generos || []).slice(0, 2).join(", "),
+                 p.nota ? "TMDB " + p.nota.toFixed(1) : ""].filter(Boolean).join(" · ");
 
   const top = document.createElement("div");
   top.className = "top";
@@ -1112,28 +1375,26 @@ function tarjeta(p) {
   tmdb.innerHTML = "<span class='marca'>TMDB</span> <b>" + (p.nota ? p.nota.toFixed(1) : "—") + "</b>";
   if (p.votos) tmdb.title = p.votos.toLocaleString("es-AR") + " votos en TMDB";
 
-  // Qué tan segura está. Calibrado contra sus propias notas: por encima de 0.3
-  // el 94% se lleva 7+ y el 100% se lleva 6+.
+  // Qué tan segura está, en "de cada 10 parecidas, cuántas puntuaste 8+" (calibrado
+  // contra sus propias notas). El 7+ de antes se leía como "me va a encantar" y no lo era.
   const conf = document.createElement("div");
   const c = p.confianza ?? 0;
-  // Muestro lo que el número SIGNIFICA, no el puntaje crudo: "0.44" se leía
-  // como "44% de posibilidades" cuando en sus datos ese nivel acierta el 100%.
-  const pr = p.probable;
-  const pct = pr === null || pr === undefined ? null : Math.min(96, Math.round(pr * 100));
-  const clase = pct === null ? "" : pct >= 90 ? "alta" : pct >= 80 ? "media" : "";
-  conf.className = "conf " + clase;
-  conf.textContent = pct === null
+  const de10 = p.encanta === null || p.encanta === undefined ? null : Math.round(p.encanta * 10);
+  conf.className = "conf " + (de10 === null ? "" : de10 >= 7 ? "alta" : de10 >= 5 ? "media" : "");
+  conf.textContent = de10 === null
     ? "confianza " + c.toFixed(2)
-    : pct + "% de las parecidas te gustaron";
-  conf.title = pct === null ? "" :
-    "De tus propias notas: de las que puntúan parecido a esta, el "
-    + pct + "% te lo llevaste con 7 o más." + SALTO
+    : "de 10 parecidas, " + de10 + " las puntuaste 8+";
+  conf.title = de10 === null ? "" :
+    "De tus propias notas: de las que puntúan parecido a esta, " + de10
+    + " de cada 10 te las llevaste con 8 o más." + SALTO
     + "(puntaje interno " + c.toFixed(2) + "; medido sobre pelis que ya elegiste ver,"
     + SALTO + "así que en el catálogo entero va a acertar algo menos)";
 
   const filaMeta = document.createElement("div");
   filaMeta.style.cssText = "display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px";
-  filaMeta.append(dd, tmdb, conf);
+  // La nota de TMDB ya va en el texto de arriba y la confianza es el número del
+  // póster: las dos estampillas juntas desbordaban la tarjeta a lo ancho.
+  filaMeta.append(dd);
   /* Las que no estaban en la lista y salieron a buscarse por el filtro se avisan:
      un filtro que hace aparecer titulos nuevos sin decirlo es un filtro que
      miente sobre lo que la lista tenia. */
@@ -1152,7 +1413,14 @@ function tarjeta(p) {
     av.textContent = p.avisos.join(" · ");
     meta.appendChild(av);
   }
-  top.append(img, meta);
+  top.append(meta);
+
+  // La frase del póster arriba del resumen. Es lo único de TMDB escrito para que
+  // te den ganas de verla; el overview cuenta la trama y arranca siempre igual.
+  const frase = document.createElement("div");
+  frase.className = "frase";
+  frase.textContent = p.frase ? "«" + p.frase + "»" : "";
+  if (!p.frase) frase.classList.add("oculto");
 
   const res = document.createElement("div");
   res.className = "resumen corta";
@@ -1273,17 +1541,121 @@ function tarjeta(p) {
       sacar();
     }));
   }
-  botones.push(
-    mk("Me la guardo", "guardar", async () => {
-      await post("/api/feedback", { key: p.key, accion: "guardar" });
-      sacar(); contarGuardadas();
-    }),
+  // Mirando Mis guardadas, "Me la guardo" no tiene sentido: ya está. Lo que falta ahí
+  // es lo contrario, y la acción existía en /api/feedback pero no la usaba ninguna
+  // pantalla — lo que guardabas no había forma de sacarlo.
+  botones.push(guardada
+    ? mk("Sacar de guardadas", "no", async () => {
+        await post("/api/feedback", { key: p.key, accion: "sacar" });
+        sacar(); contarGuardadas();
+      })
+    : mk("Me la guardo", "guardar", async () => {
+        await post("/api/feedback", { key: p.key, accion: "guardar" });
+        sacar(); contarGuardadas();
+      }),
     mk("No me interesa", "no", async () => { await post("/api/feedback", { key: p.key, accion: "descartar" }); sacar(); }),
   );
   acc.append(...botones);
 
-  el.append(top, res, verMas, cajaPuntuar, acc);
+  // El póster es la tarjeta; la ficha entera va encima y sale al pasar por arriba.
+  img.className = "poster";
+  const pie = document.createElement("div");
+  pie.className = "pie";
+  const tituloPie = document.createElement("div");
+  tituloPie.className = "tituloPie";
+  tituloPie.textContent = p.titulo;
+  tituloPie.title = p.titulo;
+  const datosPie = document.createElement("div");
+  datosPie.className = "datosPie";
+  datosPie.textContent = [puesto === null ? "" : "#" + puesto, p.anio,
+                          esTv ? "serie" : "película"].filter(Boolean).join(" · ");
+  // El «por qué», en la cara de la tarjeta y no escondido atrás del hover. Es lo
+  // único que la app sabe y el póster no dice, y es lo que hace que den ganas de
+  // verla: «porque te gustó Nueve reinas» vende más que cualquier puntaje. Una
+  // línea, cortada; la completa sigue estando en la ficha.
+  const porQue = document.createElement("div");
+  porQue.className = "porQuePie";
+  porQue.textContent = p.motivo || "";
+  pie.append(tituloPie, datosPie);
+  if (p.motivo) pie.append(porQue);
+
+  // La nota que creo que le vas a poner. Es el tercer intento y el primero que
+  // dice algo en la escala en la que él piensa.
+  //
+  // 1) Dos porcentajes (7+ grande, 8+ chiquito): "no entiendo qué representan".
+  // 2) El puesto (#1, #2): ordenaba pero no decía si la #1 era buena, y la
+  //    respuesta fue "se supone que la número 1 me tiene que gustar SÍ O SÍ".
+  // 3) Esto: de las que puntúan parecido a ésta, qué nota les puso ÉL. Se lee sin
+  //    explicación, está en su escala del 1 al 10, y deja claro de entrada que
+  //    nadie le está prometiendo un 10 — porque con 286 notas no se puede.
+  //
+  // El tope honesto hoy es 8.2: arriba de 0.92 de confianza sus 19 puntuadas de
+  // ese tramo promedian 8.16 y el 78% se llevó 8 o más. Eso es lo más fuerte que
+  // se puede afirmar; el "sí o sí" no existe y prometerlo sería mentir.
+  // El puesto no se perdió: va abajo, con el año.
+  const badge = document.createElement("div");
+  const ne = p.notaEsperada;
+  badge.className = "badge" + (de10 === null ? "" : de10 >= 6 ? " alta" : de10 >= 4 ? " media" : "");
+  const gusta = document.createElement("b");
+  gusta.textContent = ne == null ? "?" : ne.toFixed(1);
+  const cual = document.createElement("i");
+  cual.textContent = "posible nota";
+  badge.append(gusta, cual);
+  badge.title = ne == null
+    ? "Todavía no tengo con qué calibrar esto."
+    : "Creo que le pondrías " + ne.toFixed(1) + "." + SALTO
+      + "Sale de tus propias notas: de las que el motor puntúa parecido a ésta,"
+      + SALTO + "ésa es la nota que les pusiste, y " + de10 + " de cada 10 se"
+      + " llevaron 8 o más." + SALTO
+      + "Es un promedio, no una promesa: dentro de este tramo el motor no"
+      + SALTO + "distingue una de otra, así que la #1 y la #8 valen lo mismo.";
+
+  const detalle = document.createElement("div");
+  detalle.className = "detalle";
+  detalle.append(top, frase, res, verMas, cajaPuntuar, acc);
+  // En el celular no hay hover: tocar el póster abre y cierra la ficha.
+  img.onclick = () => el.classList.toggle("abierta");
+
+  el.append(img, badge, pie, detalle);
   return el;
+}
+
+// Las reglas de Mis gustos son varas duras: lo que no las pasa no baja de
+// puesto, desaparece. Sin decirlo, la única lectura posible es "el motor no
+// conoce esas películas", y no es eso: las vio y las tiró porque se lo pediste.
+// Si todas las que se ven valen lo mismo, decirlo antes de que lo pregunte.
+function avisarTramo(base) {
+  const caja = $("#avisoTramo");
+  const cards = [...$("#resultados").children].filter(el => el.dataset.nota);
+  if (!cards.length) { caja.classList.add("oculto"); return; }
+  const tramos = new Set(cards.map(el => el.dataset.nota));
+  const partes = [];
+  // Un "7.2" en la esquina del póster se lee como una nota mediocre, y es SU
+  // promedio. Contra 10 el número parece poco; contra lo que él mismo le pone a
+  // lo que elige a mano, no. Sin esta línea la comparación es imposible de hacer.
+  if (base) {
+    partes.push("Tu promedio es " + base.media.toFixed(1) + " y le ponés 8 o más al "
+      + base.ochoPropio + "% de lo que elegís ver vos. Lo mejor que te puedo ofrecer hoy es "
+      + base.techo + ", con " + base.techoOcho + "% de chance de 8+ — o sea, mejor que vos eligiendo.");
+  }
+  if (cards.length > 2 && tramos.size === 1) {
+    partes.push("Las " + cards.length + " de acá caen en el mismo tramo (" + [...tramos][0]
+      + "): ahí el motor no distingue una de otra, así que la diferencia entre la #1 y la #"
+      + cards.length + " no te la puedo sostener. Puntuar más es lo que separa el tope.");
+  }
+  caja.classList.toggle("oculto", !partes.length);
+  caja.textContent = partes.join(" ");
+}
+
+function mostrarDescartes(d) {
+  const caja = $("#descartes");
+  const porRegla = Object.entries(d?.descartes || {}).sort((a, b) => b[1] - a[1]);
+  const total = porRegla.reduce((s, [, n]) => s + n, 0);
+  caja.classList.toggle("oculto", total === 0);
+  if (!total) return;
+  caja.textContent = "Tus reglas dejaron afuera " + total + (total === 1 ? " título" : " títulos")
+    + " en esta búsqueda: " + porRegla.slice(0, 4).map(([r, n]) => n + " por " + r).join(", ")
+    + ". Se cambian en Mis gustos.";
 }
 
 async function buscar(mas) {
@@ -1291,7 +1663,10 @@ async function buscar(mas) {
   $("#btnBuscar").disabled = true;
   $("#estadoBusqueda").textContent = "Buscando…";
   try {
-    const q = new URLSearchParams({ texto: $("#inAnimo").value || "", n: "8" });
+    // 12 y no 8: con la barra al costado entran seis por fila, así que ocho dejaban
+    // una fila y media y había que clickear "otras" enseguida. Doce son dos filas
+    // enteras. La cola del server trae 30, o sea dos tandas y media por búsqueda.
+    const q = new URLSearchParams({ texto: $("#inAnimo").value || "", n: "12" });
     if (!mas) q.set("nueva", "1");   // empezar de cero vuelve a poner todo en juego
     if (preset) q.set("preset", preset);
     if (generosElegidos.size) q.set("generos", [...generosElegidos].join(","));
@@ -1303,27 +1678,19 @@ async function buscar(mas) {
     if (semillaActiva) q.set("semilla", semillaActiva.key);
     const { lista, diagnostico } = await api("/api/recomendaciones?" + q);
     if (!mas) $("#resultados").innerHTML = "";
-    // Lo nuevo va ABAJO de lo que ya estaba, nunca entre medio. Antes se
-    // reordenaba la grilla entera por confianza, y si «otras» traía algo más
-    // alto se metía arriba: la primera recomendación se iba para abajo. Lo que
-    // ya está en pantalla no se mueve, y el orden es el del server tal cual:
-    // viene por secciones, y dentro de cada una siempre baja.
+    // Lo nuevo va ABAJO de lo que ya estaba, nunca entre medio, y nunca con más
+    // puntaje: el server sirve una sola cola ordenada y lo que todavía no mostró
+    // lo mantiene ordenado entre sí. Acá no se reordena nada — lo que ya está en
+    // pantalla no se mueve.
     for (const p of lista) {
-      // Una sección nueva arranca cuando, buscando más hondo, aparecieron
-      // mejores que lo último mostrado. Van abajo, separadas y avisadas.
-      if (p.inicioSeccion && $("#resultados").children.length) {
-        const sep = document.createElement("div");
-        sep.className = "separadorSeccion";
-        sep.style.cssText = "grid-column:1/-1;flex-basis:100%;padding:14px 4px 6px;"
-          + "opacity:.8;font-size:13px;border-top:1px solid currentColor";
-        sep.textContent = "Buscando más hondo aparecieron estas. Van aparte porque algunas puntúan "
-          + "más alto que las de arriba: de acá para abajo, el orden vuelve a empezar.";
-        $("#resultados").appendChild(sep);
-      }
-      const el = tarjeta(p);
+      // El puesto se cuenta sobre la grilla entera, no sobre la tanda: apilando
+      // «mostrame otras» la novena tiene que decir #9, no #1 de nuevo.
+      const el = tarjeta(p, { puesto: $("#resultados").children.length + 1 });
       el.dataset.conf = String(p.confianza ?? 0);
+      if (p.notaEsperada != null) el.dataset.nota = p.notaEsperada.toFixed(1);
       $("#resultados").appendChild(el);
     }
+    avisarTramo(diagnostico?.lineaDeBase);
     // Si apretó "otras" y no vino nada, hay que DECIRLO: antes no pasaba nada
     // en pantalla y parecía que el botón estaba roto.
     const vacio = lista.length === 0;
@@ -1345,14 +1712,14 @@ async function buscar(mas) {
           "Encontré " + d.rechazadas + ", pero ninguna llega a tu vara de " + d.vara
           + ": la mejor da " + d.mejorRechazada + ". Poniendo «Qué tan exigente» en "
           + d.varaParaOcho + " te muestro unas " + d.cuantasParaOcho
-          + " — o sacá algún filtro: con «Sin animación» te quedás casi sin nada, "
-          + "porque tu banda más alta es anime.";
+          + " — o sacá algún filtro.";
       } else {
         $("#vacioRec").textContent = "Con estos filtros ya te ofrecí todo lo que pasa tu vara. "
           + "Prefiero quedarme corto antes que rellenar. Si querés ver más, bajá "
           + "«Qué tan exigente» en Mis gustos — o sacá algún filtro.";
       }
     }
+    mostrarDescartes(diagnostico);
     $("#btnMas").classList.remove("oculto");
   } catch (e) {
     $("#errBuscar").textContent = e.message;
@@ -1380,7 +1747,8 @@ async function verGuardadas() {
   cont.innerHTML = "";
   cont.classList.remove("oculto");
   for (const p of lista) {
-    const el = tarjeta({ ...p, motivo: "La guardaste para después.", confianza: 0, probable: null, avisos: [] });
+    const el = tarjeta({ ...p, motivo: "La guardaste para después.", confianza: 0, probable: null, avisos: [] },
+                       { guardada: true });
     cont.appendChild(el);
   }
 }
@@ -1412,7 +1780,11 @@ async function cargarAcierto() {
   b.innerHTML = "";
   const t = document.createElement("span");
   const dif = d.real - d.prometido;
-  t.innerHTML = "De las que te recomendé con <b>70% o más</b> y después puntuaste: "
+  // "con 70% o más" nombraba el número que estaba en la esquina del póster. Ese
+  // número ya no está —se saturaba y no distinguía la primera de la décima—, así
+  // que el cartel dice el tramo con palabras y el detalle va en el globito.
+  t.title = "El tramo son las que tenían 70% o más de chance de gustarte (7 o más de nota tuya).";
+  t.innerHTML = "De las que te recomendé <b>con más confianza</b> y después puntuaste: "
     + "<b>" + d.gustaron + " de " + d.total + "</b> te gustaron (" + d.real + "%). "
     + "Yo te había prometido " + d.prometido + "%"
     + (Math.abs(dif) <= 8 ? " — le pega." : dif < 0 ? " — prometo de más." : " — prometo de menos.");
@@ -1448,6 +1820,7 @@ function pedirParecidas(item) {
     const esRec = t.dataset.tab === "rec";
     t.classList.toggle("on", esRec);
   });
+  $("#lateral").dataset.vista = "rec";
   $("#vistaRec").classList.remove("oculto");
   $("#vistaBib").classList.add("oculto");
   $("#vistaPun").classList.add("oculto");
@@ -1667,7 +2040,16 @@ async function cargarRapido() {
     const d = document.createElement("div");
     d.className = "d";
     const t = document.createElement("div");
-    t.className = "t"; t.textContent = x.titulo;
+    t.className = "t";
+    // El título abre la ficha: "¿esta la vi?" se contesta mirándola, no adivinando por
+    // el póster. Acá no hay id de IMDb en la respuesta, así que va a TMDB.
+    const link = document.createElement("a");
+    link.href = "https://www.themoviedb.org/" + x.kind + "/" + x.tmdbId;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = x.titulo;
+    link.title = "Abrir la ficha en TMDB";
+    t.appendChild(link);
     const s = document.createElement("div");
     s.className = "s";
     s.textContent = [x.anio, "TMDB " + (x.nota || 0).toFixed(1)].filter(Boolean).join(" · ");
@@ -1680,6 +2062,7 @@ async function cargarRapido() {
     // señal más fuerte que cualquier puntaje.
     let dejada = false;
     const tira = tiraDeNotas(x, null, () => { sacar(); refrescar(); }, () => ({ dejada }));
+    const rapidos = botonesRapidos(x, () => { sacar(); refrescar(); }, () => ({ dejada }));
 
     const acciones = document.createElement("div");
     acciones.className = "fila";
@@ -1704,12 +2087,142 @@ async function cargarRapido() {
       mk("no me acuerdo", saltar, "La saco de esta lista sin puntuarla"),
       btnDejada);
 
-    d.append(t, s, tira, acciones);
+    d.append(t, s, rapidos, tira, acciones);
     card.append(img, d);
     cont.appendChild(card);
   }
 }
 $("#btnRapidoMas").onclick = () => { paginaRapido++; cargarRapido(); };
+/* ---------- ¿Te tienta? ---------- */
+// La otra mitad de cargar gustos, y la que sirve cuando ya tenés muchas puntuadas: de
+// lo que VISTE ya casi no queda nada sin puntuar, pero candidatas hay infinitas. Acá se
+// contesta siempre, haya visto o no, y cada "no me tienta" es un negativo — que es justo
+// lo que al motor le falta, porque solo puntuaste lo que elegiste ver.
+//
+// No hay endpoint nuevo: son las mismas candidatas de Recomendar (sin `nueva`, así que
+// avanza la misma cola, igual que «Mostrame otras») y los mismos botones de las tarjetas
+// (/api/feedback), que perfil() ya lee como `reacciones`. Lo único distinto es la
+// fricción: 24 pósters y un clic, en vez de ocho tarjetas para leer.
+async function cargarTienta() {
+  const cont = $("#tientaLista");
+  $("#tientaEstado").textContent = "Buscando…";
+  const r = await api("/api/recomendaciones?n=24");
+  const lista = r.lista || [];
+  cont.innerHTML = "";
+  $("#tientaEstado").textContent = lista.length
+    ? lista.length + " para mirar"
+    : "no quedan candidatas por ahora — bajá la vara en Mis gustos o traé otras más tarde";
+  for (const x of lista) {
+    const card = document.createElement("div");
+    card.className = "rapidoCard";
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    if (x.poster) img.src = x.poster;
+    const d = document.createElement("div");
+    d.className = "d";
+    const t = document.createElement("div");
+    t.className = "t";
+    // El título es el link a IMDb. Él, usando la grilla: *"es difícil porque no sé de qué
+    // trata la película, no puedo entrar a IMDb para ver la puntuación y una breve
+    // descripción"*. Decidir «me tienta» con el póster y el año es adivinar, y una
+    // reacción adivinada le enseña ruido al perfil.
+    const link = document.createElement("a");
+    link.href = x.imdb ? "https://www.imdb.com/title/" + x.imdb
+                       : "https://www.themoviedb.org/" + x.kind + "/" + x.tmdbId;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = x.titulo;
+    link.title = x.imdb ? "Abrir en IMDb" : "Abrir en TMDB (no tiene id de IMDb)";
+    t.appendChild(link);
+    const s = document.createElement("div");
+    s.className = "s";
+    const votos = x.votos >= 1000 ? Math.round(x.votos / 1000) + "k" : String(x.votos || 0);
+    s.textContent = [
+      x.anio, x.kind === "tv" ? "serie" : "película",
+      (x.generos || []).slice(0, 2).join(", "),
+      x.nota ? "TMDB " + x.nota.toFixed(1) + " (" + votos + ")" : null,
+      x.encanta == null ? null : Math.round(x.encanta * 100) + "% te encanta",
+    ].filter(Boolean).join(" · ");
+    // De qué trata, en tres líneas. Tocar lo abre entero: con 24 tarjetas, el resumen
+    // completo de todas hace que la pantalla no entre en ningún lado.
+    const resumen = document.createElement("div");
+    resumen.className = "resumen";
+    resumen.textContent = x.resumen || "TMDB no tiene resumen de esta.";
+    resumen.title = "Tocar para leerlo entero";
+    resumen.onclick = () => resumen.classList.toggle("entero");
+    const porque = document.createElement("div");
+    porque.className = "s";
+    porque.textContent = x.motivo || "";
+    // Si al sacar la última queda vacío, trae la tanda siguiente sola: frenar a tocar
+    // "Traer otras" cada 24 es la mitad de la fricción que se está tratando de sacar.
+    const sacar = () => {
+      card.remove();
+      if (!cont.children.length) cargarTienta();
+    };
+    const acciones = document.createElement("div");
+    acciones.className = "fila";
+    acciones.style.cssText = "gap:6px; margin-top:6px";
+    const mk = (txt, accion, titulo) => {
+      const b = document.createElement("button");
+      b.className = "chico";
+      b.textContent = txt;
+      if (titulo) b.title = titulo;
+      b.onclick = async () => {
+        await post("/api/feedback", { key: x.key, accion, titulo: x.titulo });
+        sacar();
+        contarGuardadas();
+      };
+      return b;
+    };
+    acciones.append(
+      mk("me tienta", "guardar", "Va a Mis guardadas y le sube el peso a lo que se le parece"),
+      mk("no me tienta", "descartar", "No te la vuelvo a ofrecer, y baja lo que se le parece"),
+      mk("ya la vi", "vista", "Sale de las recomendaciones. Si querés ponerle nota, usá la grilla de arriba"));
+    d.append(t, s, resumen, porque, acciones);
+    card.append(img, d);
+    cont.appendChild(card);
+  }
+}
+$("#btnTientaMas").onclick = cargarTienta;
+
+/* ---------- ¿Le achunta? ---------- */
+// Un recomendador nunca te muestra lo que ya viste, así que no hay con qué comparar.
+// Esto ordena SUS puntuadas con el mismo motor —cada una calculada sin su propia nota—
+// y muestra al lado qué les puso él. Es el backtest, pero mirable sin terminal.
+async function validar() {
+  $("#validarEstado").textContent = "Calculando…";
+  const r = await api("/api/validacion");
+  const cont = $("#validarLista");
+  cont.innerHTML = "";
+  const top = (r.lista || []).slice(0, 20);
+  if (!top.length) {
+    $("#validarEstado").textContent = "todavía no hay puntuaciones para probar";
+    return;
+  }
+  // Contra la base: si de cada 10 que ve le gustan 4, poner 16 de 20 arriba es el
+  // mérito del motor; poner 8 sería no hacer nada.
+  const buenas = top.filter(x => x.real >= 8).length;
+  $("#validarEstado").textContent =
+    `de las 20 que pondría primeras, ${buenas} las puntuaste 8 o más — eligiendo vos, ${Math.round((r.base || 0) * 100)}% de tus ${r.total}`;
+  for (const x of top) {
+    const fila = document.createElement("div");
+    fila.className = "fila";
+    fila.style.cssText = "gap:10px; padding:3px 0";
+    const n = document.createElement("b");
+    n.textContent = x.real;
+    n.style.cssText = "min-width:1.6em; text-align:right; color:"
+      + (x.real >= 8 ? "var(--ok)" : x.real <= 6 ? "var(--no)" : "var(--txt2)");
+    const t = document.createElement("span");
+    t.textContent = x.titulo + (x.anio ? " (" + x.anio + ")" : "");
+    const p = document.createElement("span");
+    p.className = "sub";
+    p.textContent = x.encanta == null ? "" : Math.round(x.encanta * 100) + "%";
+    fila.append(n, t, p);
+    cont.appendChild(fila);
+  }
+}
+$("#btnValidar").onclick = validar;
+
 $("#rapidoTipo").onchange = () => { paginaRapido = 0; yaPropuestas.clear(); cargarRapido(); };
 
 /* ---------- Agregar algo nuevo ---------- */
@@ -1768,9 +2281,12 @@ $("#btnFiltros").onclick = () => {
 function marcarFiltrosActivos() {
   const donde = $("#txtFiltros");
   if (!donde) return;
+  // Sólo lo que quedó adentro de la caja plegable: el ánimo y los presets están a la
+  // vista, así que contarlos decía "hay 2 filtros escondidos" cuando no había ninguno.
   const n = generosElegidos.size + generosVetados.size
-          + (preset ? 1 : 0) + ($("#inAnimo").value.trim() ? 1 : 0);
-  donde.textContent = n ? "Filtros y ánimo (" + n + ")" : "Filtros y ánimo";
+          + ($("#sinAnimacion").checked ? 1 : 0) + ($("#soloNuevas").checked ? 1 : 0)
+          + ($("#usarMaxMin").checked ? 1 : 0);
+  donde.textContent = n ? "Más filtros (" + n + ")" : "Más filtros";
 }
 
 /* ---------- Cuenta ---------- */

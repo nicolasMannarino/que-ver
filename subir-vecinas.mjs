@@ -28,7 +28,11 @@ await A.cacheEscribir(V.CLAVE, doc);
 // cacheEscribir se traga los errores (el cache es best-effort): la prueba de que
 // subió es leerla de vuelta.
 const vuelta = await A.cacheLeer(V.CLAVE);
-const ok = vuelta?.triangulo === doc.triangulo;
+// El cuerpo grande de la tabla, sea cual sea el formato. Comparaba `triangulo`, que
+// en la v2 no existe: `undefined === undefined` daba true y decía "listo" sin haber
+// verificado nada.
+const cuerpo = (d) => d?.indices ?? d?.triangulo ?? null;
+const ok = cuerpo(vuelta) !== null && cuerpo(vuelta) === cuerpo(doc);
 console.log(ok ? "listo: está en la base. Reiniciá el servicio para que la lea."
                : "FALLÓ: no la pude leer de vuelta de la base.");
 await A.cerrar();

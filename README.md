@@ -126,6 +126,34 @@ puntuás aunque no estuviera en tu lista original.
 formato de bloc de notas (`10 Puntos: A, B, C`), así que lo podés usar en
 cualquier otro lado — o volver a importarlo acá.
 
+## Cómo se ve
+
+Una **grilla de pósters**, no una lista de fichas. Antes cada recomendación era una
+tarjeta horizontal de 340px con el póster de 116px a la izquierda y todo el texto al
+lado —título, año, duración, géneros, nota de TMDB, confianza, motivo, resumen y cinco
+botones—, y con seis en pantalla no se distinguía una de otra. Él, comparando con
+taste.io: *"es fea visualmente"*.
+
+Ahora la imagen **es** la tarjeta: seis por fila en la compu, dos en el celular, con el
+título y el año abajo y los dos porcentajes arriba a la derecha. Todo lo demás —el motivo, el
+resumen, los botones— vive **encima del póster** y aparece al pasar por arriba; en el
+celular, tocando el póster, que es donde no hay hover.
+
+Y el panel de arriba se pliega. Tenía título, ayuda, texto libre, siete presets, doce
+géneros, tres casillas y la duración, todo desplegado: media pantalla antes de la
+primera recomendación. Él: *"es muy grande eso de «qué tenés ganas de ver», está como
+desproporcionado"*. Quedaron a la vista el texto, los presets y el botón; el resto está
+atrás de **«Más filtros»**, que ya existía pero solamente en el celular.
+
+El nombre dejó de ser texto pelado: el encabezado lleva el mismo dibujo que el ícono
+de la app —pantalla y play— y el acento parte el nombre en dos. Y la barra de scroll
+de la ficha, que en Windows salía como un bloque gris con riel claro pegado al borde de
+una tarjeta de 196px, es fina, sin riel y del color del acento.
+
+Nada de esto cuesta velocidad: no hay una fuente externa, ni una imagen nueva, ni un
+pedido más. Sigue siendo un solo `index.html` sin build.
+
+
 ## Mis gustos
 
 La tercera pestaña. Es lo que el motor aplica **además** de tus puntuaciones: tus notas
@@ -177,6 +205,49 @@ La mezcla de la fórmula de afinidad (mitad rasgos sueltos, mitad "a cuáles de 
 tuyas se parece") se eligió corriendo esto, no a ojo: pasó de 0.724 a 0.742.
 Sumarle la nota de TMDB la llevó de 0.750 a 0.776 (ver «Tus 43 series»).
 
+### Contra el catálogo, no contra tu propia lista
+
+El backtest de arriba ordena **tus** títulos. Son cosas que vos elegiste ver: ya pasaron
+tu filtro, y el 64% te gustó. El pool de verdad es el catálogo, donde casi nada te va a
+encantar. Por eso decía P@10 90% mientras él, mirando seis tarjetas: *"quizás me gusta 1
+o 2"*.
+
+Ahora le suma **negativos muestreados**: títulos conocidos que no puntuaste, sorteados de
+páginas al azar del catálogo por votos — no las 100 más votadas de la historia, que son
+todas buenas y conocidas y no son el catálogo, son otra lista de favoritas. No sabemos
+que no te gustarían, alguno sí, así que la precisión de ese pool es una **cota de abajo**.
+Lo que sí mide honesto es el orden.
+
+    AUC de tus 9-10 contra...
+       tus propias 1-6:          0.884
+       el catálogo que no viste: 0.883
+
+**La sospecha no se sostuvo:** el orden aguanta igual contra títulos que nunca elegiste,
+y eso que las tuyas van con la predicción sin su propia nota y las del catálogo no tienen
+nota que sacar. El sesgo de selección no era el problema. El problema está en la
+composición:
+
+    De las primeras que mostraría:
+       top 10:  3 tuyas 9-10 · 4 tuyas 7-8 · 1 tuya 1-6 ·  2 del catálogo
+       top 30:  7 tuyas 9-10 · 5 tuyas 7-8 · 2 tuyas 1-6 · 16 del catálogo
+
+    Las 10 del catálogo que pondría primeras:
+       KENGAN ASHURA · SPY×FAMILY · La leyenda de Korra · TONIKAWA ·
+       Spider-Man: Un nuevo universo · Justicia Joven · Cómo entrenar a tu dragón 3 ·
+       Roma · Spirit · Grandes Héroes
+
+**Nueve de diez son animadas.** Ahí está el "de 6 me gustan 1 o 2": no es que el orden
+esté mal, es que recomienda **un solo rincón**. Tus 9-10 están concentradas en anime, el
+perfil lo amplifica, y cuando se acaba el anime bueno lo que sigue es Tonikawa. Encaja
+con `penalizarInfantil: 0` y `penalizarAnimacionOccidental: 0`: sin esos frenos, el
+catálogo animado se lleva la lista.
+
+    NEGATIVOS=0 node backtest.mjs      para saltearlo
+    NEGATIVOS=600 node backtest.mjs    para apretar más
+
+El sorteo es el mismo en cada corrida, a propósito: si el pool cambia, dos medidas no se
+pueden comparar.
+
 ## Por qué no me gustó
 
 La dimensión que él nombra siempre — "lenta", "mal llevada", "me tiene que atrapar en
@@ -199,10 +270,47 @@ películas no entraban en ninguna y la señal salía sucia.
 
 ## La pestaña "Puntuar"
 
-Propone las más vistas que todavía no están en tu lista, de más a menos vista — si
-viste algo, es probable que sea de esas. Cuatro salidas por título:
+Propone títulos conocidos que todavía no puntuaste, ordenados por **la probabilidad de
+que los hayas visto**: los que más se parecen a lo que ya mirás.
 
-- **la nota del 1 al 10**
+**Probé lo contrario y salió mal.** La primera versión ordenaba por *cuánto le enseñan al
+motor* — muestreo activo, de manual: preguntar por aquello de lo que el perfil no sabe de
+qué lado cae. En la cancha, de 24 tarjetas pudo puntuar **2**. La razón se ve mirándola de
+atrás: lo que el motor no entiende es justamente lo que él no mira. Le salían El
+resplandor, Dunkerque y ¡Huye!, ninguna vista; con afinidad salen Dragon Ball, One Punch
+Man, La Oficina y Malcolm, que son de su mundo.
+
+Sí, cada respuesta del borde enseña más que una del centro. Una respuesta que no llega
+enseña cero.
+
+**No se puede medir offline cuál conviene.** La clase "la vio" son sus puntuadas, y ésas
+en pantalla se filtran siempre: cualquier número que salga de ahí habla de títulos que
+nunca se muestran. La primera medición daba 21 contra 10 a favor de la afinidad y estaba
+inflada por construcción. Lo decide él usándolo.
+
+Cuánto sabe el motor de un título se calcula con los tres campos que `/discover` ya trae
+—género, década e idioma— y no cuesta ninguna consulta de más: pedir las 120 fichas
+enteras para ordenar 24 tarjetas serían cien consultas por pantalla (`rasgosLivianos` y
+`opinionLiviana`, en motor.mjs).
+
+Hay un tope por tipo: de las películas más vistas ya puntuó casi todas y de las series
+no —43 contra 243—, así que sin tope el pool queda lleno de series y la pantalla salía
+20 a 4.
+
+**Para él, el lado de las películas está casi agotado**, y eso no lo arregla ningún orden:
+de las 600 películas más votadas ya tocó 327 (192 puntuadas, 135 salteadas), y las 273
+que quedan son las que no miró. Con las series sobra: 516 sin tocar de 600.
+
+Salidas por título:
+
+- **tres botones: "me encantó" (9), "me gustó" (7), "no me gustó" (4)**. Es lo que hace
+  taste.io, y es por lo que ahí se cargan cien títulos en el rato que acá llevaban
+  veinte: la nota exacta importa poco —el motor trabaja con cuánto se despega de tu
+  promedio, no con el número— y la fricción de elegir entre diez importa mucho.
+  Sus 286 tienen **12 notas de 4 o menos**: calificó lo que él eligió ver, así que casi
+  no hay "no". Un motor que nunca vio un rechazo no aprende a rechazar, y el botón está
+  para eso.
+- **la nota del 1 al 10**, abajo, para lo que quieras matizar.
 - **"no la vi"** y **"no me acuerdo"** la sacan de esta cola. **No la sacan de las
   recomendaciones**: no haberla visto es justamente motivo para recomendártela.
 - **"la dejé"** para lo que empezaste y no terminaste: prende el modo y elegís la nota
@@ -348,6 +456,23 @@ marca, así que **ninguno** puede resolver una predicción.
 Sigue estando **menos sesgada que el backtest** — mide contra lo que la app eligió,
 no contra lo que él ya había elegido ver — pero ya no se anota mérito ajeno.
 
+## Probarlo con lo que ya puntuaste
+
+Un recomendador nunca te muestra lo que ya viste, así que no tenés con qué comparar.
+Probando taste.io, lo que lo convenció fue justo eso: *"me recomendó cosas que ya vi y
+que me gustaron, así que bien"*.
+
+El botón **"Probar con mis puntuaciones"**, abajo de la pestaña Puntuar, ordena tus
+propias notas con el mismo motor —cada título calculado **sin su propia nota**— y muestra
+al lado qué le pusiste. Es `backtest.mjs`, sin terminal:
+
+    de las 20 que pondría primeras, 16 las puntuaste 8 o más
+    eligiendo vos: 37% de tus 259
+
+Si arriba están tus 9 y tus 10, anda. Si aparece un 5 en el puesto 3, no. El número de al
+lado es el mismo porcentaje que muestran las tarjetas, así que también sirve para ver si
+ese porcentaje miente.
+
 ## Confianza
 
 Cada recomendación muestra **qué porcentaje de lo que puntúa parecido le gustó**
@@ -392,6 +517,125 @@ observaciones adentro (si no llega, se fusiona con el vecino) y encima se encoge
 hacia su tasa base con un prior de 8. Quedan cinco niveles reales —
 48 / 59 / 68 / 78 / 94 — sostenidos por entre 35 y 72 títulos cada uno.
 
+### El techo del 53%, y por qué no se sube
+
+Él, mirando la grilla: *"las que más tienen son 53%, me parece poco la verdad teniendo
+en cuenta la cantidad de puntuaciones que puntué"*. Sonaba a queja sobre el motor y era
+sobre la curva.
+
+El bloque de arriba de la curva de 8+ da **66%**, y ése es el techo absoluto: ninguna
+tarjeta puede mostrar más, aunque la película puntúe 1.72 de confianza contra el 0.55
+del corte. Y se satura: todo lo que pasa 0.55 muestra el mismo 66%, así que la #1 se ve
+igual que la #40.
+
+La tentación es aflojar `minBloque` y `prior` hasta que el techo suba. Medido con
+validación cruzada de cinco pliegues sobre sus 286 notas —la curva se arma con cuatro
+quintos y se comprueba contra el quinto que no vio—, eso es mentir:
+
+| minBloque / prior | techo | 60-75%: promete → pasa | 75%+: promete → pasa |
+|---|---|---|---|
+| **20 / 8 (el de hoy)** | 66% | 64% → **47%** | — |
+| 12 / 4 | 79% | 69% → 38% | 78% → **45%** |
+| 6 / 2 | 85% | 69% → 50% | 81% → **41%** |
+
+El techo de hoy ya promete de más: arriba de todo dice 64% y cumple 47%. El banner de
+la pantalla lo venía diciendo solo —*"de las que te recomendé con 70% o más: 2 de 4 te
+gustaron. Yo te había prometido 81%"*—. Subirlo era repetir ese error más fuerte.
+
+La curva de **7 o más** no tiene ese problema en el promedio: llega a 88% y cumple
+—promete 83%, pasa 76%—. Durante un tiempo la tarjeta mostró **las dos**, el 7+ grande y
+el 8+ chiquito abajo.
+
+**Eso se cayó.** Primero porque la pregunta que generaba era «¿qué representan los dos
+números?»: dos porcentajes sin unidad en la esquina de un póster no se leen, se adivinan.
+Y segundo, y peor, porque **arriba de todo los dos se saturan**. Una tanda real de diez,
+medida contra sus notas:
+
+```
+8+  66%   7+  88%   conf 1.73   Demon Slayer
+8+  66%   7+  88%   conf 1.65   Inuyasha
+...
+8+  66%   7+  88%   conf 0.88   Zootopia
+```
+
+Diez tarjetas, el mismo número en todas, y el puntaje interno yendo de 1.73 a 0.88. Un
+número que es igual en la primera y en la décima no ordena nada y encima promete una
+precisión que no tiene.
+
+El segundo intento fue **el puesto** —#1, #2, #3—: exacto, imposible de saturar, y hace
+visible que la lista está ordenada. Duró una versión. Ordenaba, pero no decía si la
+primera era buena, y la respuesta fue: *"se supone que la película número 1 me tiene que
+gustar SÍ O SÍ"*.
+
+El tercero, el que quedó: **la nota que creo que le vas a poner**. De las que el motor
+puntúa parecido a ésta, ¿qué nota les pusiste vos? Está en la escala que él mismo usa,
+se lee sin explicación, y deja claro de entrada que nadie le está prometiendo un 10 —
+porque con 286 notas no se puede. El puesto no se perdió: bajó al pie de la tarjeta,
+al lado del año. Los dos porcentajes siguen en el globito y en la ficha.
+
+### Y el tope se lo estaba comiendo la curva
+
+Arriba de 0.55 de confianza el motor «no distinguía»... pero eso era en parte un
+artefacto de cómo se armaba la curva. `calibrar()` corría la isotónica sobre puntos
+sueltos y **después** fusionaba los bloques flacos, y esa fusión se tragaba la punta:
+sobre sus 259 puntuaciones el bloque de arriba terminaba arrancando en 0.55 con 54
+títulos adentro.
+
+Y era falso. Mirando sus notas directamente:
+
+```
+conf > -inf   n=259   nota 7.04   8+ 37%   9+ 13%
+conf >  0.30  n= 78   nota 7.86   8+ 63%   9+ 29%
+conf >  0.55  n= 55   nota 7.87   8+ 64%   9+ 29%
+conf >  0.80  n= 25   nota 8.28   8+ 80%   9+ 36%
+
+sus 20 mejor predichas, nota real: 8 9 9 8 9 10 9 8 7 8 8 8 8 10 9 10 8 8 10 8
+                                   media 8.60 · 9 de 20 se llevaron 9 o más
+```
+
+De sus 20 mejor predichas, **una sola** bajó de 8. Eso es una señal real y la curva la
+estaba promediando contra el tramo de abajo.
+
+El arreglo es dar vuelta el orden: **agrupar primero** de a `minBloque` puntuadas y
+correr la isotónica sobre esos bloques. Cada bloque nace con suficientes observaciones y
+la isotónica solo junta los que de verdad se contradicen. El resultado sobre sus datos:
+
+```
+antes:  ... 0.55 -> 7.94 (n=54)                 <- toda la primera pantalla igual
+ahora:  ... 0.38 -> 7.65 (n=60)   0.92 -> 8.16 (n=19)
+```
+
+**Lo que sigue siendo cierto:** arriba de 0.92 el motor no distingue una de otra. Cuando
+las doce que se muestran caen todas en ese tramo, la pantalla lo dice en una línea en vez
+de inventar decimales — el orden ahí sale del puntaje interno, pero la diferencia entre la
+#1 y la #12 no se sostiene con 286 notas. Eso se arregla puntuando más, no con aritmética.
+
+### La tabla cortaba lo viejo más fuerte que todos
+
+Con «Sin animación» puesto, lo mejor que le ofrecía la app daba **0.735** de confianza
+—sus propias favoritas están entre 1.0 y 1.9—. No había nada en el pozo que se pareciera
+a su gusto tanto como lo que ya amaba, y de ahí la sensación de *"ninguna que crea que
+puede ser una GRAAAN recomendación"*.
+
+La tabla sí las conocía. `candidatosVecinas()` cortaba en `prefs.anioMinimo` **antes de
+proponer**, y eso la dejaba cortando más fuerte que todas las demás fuentes: para el
+resto, «anterior al 2000» no es una pared sino un castigo (`penalizacionPreAnio`) más
+una vara de calidad (`notaMinimaViejas: 8`), y lo viejo que quedó como clásico pasa
+igual. Acá nunca llegaba a que `filtrar()` decidiera.
+
+Lo que se perdía, con el castigo por vieja **ya aplicado**:
+
+| | antes | ahora |
+|---|---|---|
+| 1ª | Harry Brown 0.735 | **Harakiri 1.260** |
+| 2ª | El jardinero fiel 0.701 | **Los siete samuráis 1.166** |
+| 3ª | Senna 0.603 | Vivir 0.774 |
+| 4ª | 3 Idiotas 0.594 | Cinema Paradiso 0.567 |
+
+Ahora corta sólo cuando lo viejo está prohibido de verdad: el tilde **«Nada anterior al
+2000»**, que es lo que `soloNuevas` significa. Sin el tilde decide `filtrar()`, como con
+cualquier otra candidata. Si aparece demasiado cine viejo, el tilde está para eso.
+
 ## Lo ya mostrado vuelve
 
 "Ya te lo mostré" vale para **la búsqueda actual**, no para siempre. Antes se
@@ -434,6 +678,26 @@ hay con qué medirlo, porque hasta ahora las reacciones no se guardaban como se�
 Con sus 4 de ejemplo la lista casi no cambia —salen El último samurái y Camino
 salvaje—; se va a notar con varias docenas. Cuando las haya, se mide como lo demás:
 si lo que le tentó, y después vio, le gustó más que el resto.
+
+### La grilla «¿Te tienta?»
+
+El mecanismo existía y estaba vacío: dos toques en toda la historia de la app. El
+problema no era el peso, era la fricción — una reacción por tarjeta, leyendo.
+
+La pestaña Puntuar tiene ahora una segunda grilla con las mismas candidatas de
+Recomendar, en chico, con tres botones: **me tienta · no me tienta · ya la vi**. No hay
+endpoint nuevo: pide `/api/recomendaciones` sin `nueva`, así que avanza la misma cola que
+«Mostrame otras», y los botones son los mismos de la tarjeta (`/api/feedback`).
+
+**Por qué hace falta**, con sus números: de sus 286 puntuaciones, **12 son de 4 o menos**.
+Calificó lo que él eligió ver, así que casi no hay "no". Un motor que nunca vio un
+rechazo no aprende a rechazar — y eso es exactamente lo que el pool realista dejó a la
+vista, con 9 de las 10 primeras del catálogo animadas.
+
+Y es la única entrada que **no se agota**. De las 600 películas más votadas ya tocó 327:
+de lo que vio y no puntuó queda poco. De candidatas que no vio hay catálogo entero, y
+acá no hace falta haberlas visto para contestar.
+
 
 ## El orden es una cola, no una consulta nueva
 
@@ -673,14 +937,31 @@ Eso tenía un precio, y se midió: la lista se cortaba. Con «todo», a las 25 t
 el relleno encontraba 35 con más confianza que lo último mostrado y ninguna por
 debajo. Dos arreglos:
 
-- **La primera búsqueda mira más hondo**: una pasada por el catálogo aunque las
-  rondas de vecinos ya hayan juntado 24 (~0.5 s más). Así las buenas entran en el
-  orden desde el principio, en vez de aparecer después sin lugar donde ponerlas.
-- **Secciones.** Si igual se acaba lo de abajo y quedan mejores esperando, la lista
-  no se corta: arranca una sección nueva, abajo, con un cartel que dice que ahí el
-  orden vuelve a empezar. Lo de arriba no se mueve, y dentro de cada sección el
-  orden siempre baja. Se arma en el mismo viaje que el relleno, así que la tanda
-  sale entera y no de a una tarjeta.
+- **La primera búsqueda mira más hondo**: dos pasadas por el catálogo aunque las
+  rondas de vecinos ya hayan juntado 24. Así las buenas entran en el orden desde el
+  principio, en vez de aparecer después sin lugar donde ponerlas.
+- ~~**Secciones.**~~ Si igual se acababa lo de abajo, la lista arrancaba una sección
+  nueva donde el orden volvía a empezar. **Se sacó.** En pantalla eso se veía como
+  un 70% atrás de dos 31%, y la respuesta fue textual: *«eso tiene que estar BIEN
+  ordenado»*. Una lista con dos órdenes no es una lista ordenada, por más cartel que
+  se le ponga en el medio. Ahora, si quedan mejores más hondo, salen primeras en la
+  **próxima** búsqueda y el cartel de abajo lo dice.
+
+**Y el que de verdad se veía en pantalla:** la cola se servía de a ocho, pero lo que
+llegaba después —la búsqueda que dispara un chip de género, el relleno de fondo— se
+pegaba al final con `concat`. Lo ya mostrado quedaba bien, pero **lo que todavía no se
+había mostrado quedaba desordenado entre sí**: una traída por el filtro con 0.70 caía
+atrás de dos que estaban en la cola con 0.31, y salían en ese orden en la tanda
+siguiente. Dos arreglos, los dos en `recomendarEnOrden`:
+
+- `sumarACola()` reordena **la parte no servida** cada vez que entra algo nuevo. Lo
+  que está en pantalla no se toca nunca.
+- La búsqueda que dispara un filtro ahora lleva **techo**, igual que el relleno: no
+  puede meter nada por arriba de lo que ya se mostró. Si el filtro es nuevo no hay
+  techo, porque ahí no hay nada mostrado y la lista empieza de cero.
+
+`test-front.mjs` apila cuatro tandas con un género pedido y cinco sin filtro y controla
+que el puntaje nunca vuelva a subir. Contra el código viejo, la primera falla.
 
 Medido con el cache frío sobre sus datos, cinco «otras» seguidos por búsqueda: ni
 una tarjeta supera a lo ya mostrado en su sección (el script de medición lo
@@ -706,8 +987,176 @@ para series de imagen real, y el anime queda afuera de las dos:
   15 años o más, ciencia ficción o fantasía: nota 8.5 y 2500 votos. Empezó en 20
   años, 8 y 1800; abajo, por qué cambió.
 
-Las películas no se tocan: Parásitos le gustó. Se editan en Mis gustos → «Series
-que tienen que estar muy buenas».
+Las películas no se tocan: Parásitos le gustó. Se editan en Mis gustos → «Las que
+tienen que estar muy buenas».
+
+## ¿Esto mejora puntuando más?
+
+Pregunta textual: *"¿Si yo veo las primeras 3 o 4 películas y las puntúo va a mejorar? ¿O va
+a ser así siempre?"*. Se mide: tomando N puntuaciones suyas al azar, diez repeticiones por N,
+qué dice el tramo de arriba de la curva y cuánto ordena.
+
+```
+   N    techo   8+ arriba   AUC 9-10   n del tramo
+  40     7.17       41%       0.746        40
+  80     7.75       57%       0.759        23
+ 120     7.67       56%       0.723        36
+ 180     7.78       59%       0.751        36
+ 240     7.83       64%       0.766        30
+ 259     8.16       78%       0.761        19
+```
+
+**Sí mejora, pero no por donde uno cree.** La capacidad de ORDENAR es plana: el AUC se
+queda en 0.75 desde las 40 puntuaciones. Lo que mejora es la RESOLUCIÓN: con más notas la
+curva puede recortar un tramo de arriba más chico y más puro. Con 40 el tramo de arriba
+eran las 40 y acertaba 41%; con 259 son 19 y acierta 78%.
+
+O sea: puntuar más no hace que encuentre cosas mejores, hace que sepa **cuáles** de las que
+encuentra son las buenas. Que es justo lo que él pedía.
+
+### Y contra qué hay que comparar el número
+
+```
+sus notas:  1:1  2:2  3:1  4:8  5:18  6:56  7:77  8:63  9:15  10:18
+media 7.04 · 8+ 38% · 9+ 13%
+```
+
+Un 7.2 en la esquina del póster parece una nota mediocre. No lo es: **es su promedio**.
+Eligiendo a mano lo que mira —con tráiler, con recomendación de un amigo, con lo que sea—
+él le pone 8 o más al 38%. El tramo de arriba de la app acierta 78%. Es el doble.
+
+Por eso la pantalla ahora arranca diciendo la línea de base: sin ella, el número se compara
+contra 10 y siempre pierde.
+
+## Los vecinos no se pueden actualizar más
+
+*"¿No se puede usar algo de vecinos pero más actualizado?"*. La tabla sale de MovieLens, y
+mirando el catálogo de GroupLens: **32M (05/2024) es el más nuevo que hay**. Los «latest»
+figuran actualizados en 9/2018, o sea más viejos, y el resto son 25M (12/2019), 20M
+(10/2016), 10M (2009), 1M (2003), 100K (1998). No hay a dónde subir.
+
+Lo que sí existe:
+
+- **TMDB ya tapa el agujero de 2024 en adelante.** Las películas posteriores al corte de
+  MovieLens no están en la tabla, pero sí en `/recommendations` y `/similar`, que son la
+  otra fuente de candidatas y se actualizan solas. Por eso Solo Leveling (2024) o Jujutsu
+  Kaisen 0 aparecen igual.
+- **Trakt.tv** es la única fuente colaborativa de verdad actualizada y con API pública
+  (la gente marca lo que ve todos los días). Cuesta: otro servicio externo, otra key, y el
+  peso habría que medirlo con el mismo barrido que se le hizo a MovieLens. No está hecho.
+
+Pero ojo con la premisa: el barrido de arriba dice que **el cuello de botella no es la
+tabla**. El AUC es plano contra el tamaño de los datos. Más vecinos daría más candidatas
+nuevas, no mejor orden.
+
+## Variedad, sin romper el orden
+
+Las doce primeras eran doce anime seguidos. No porque el motor se equivocara —cada una
+es buena para él— sino porque su perfil está concentrado ahí, y una lista donde las doce
+son la misma cosa no sirve para elegir qué ver hoy.
+
+`diversificar()` ya existía y se aplicaba adentro de `recomendar()`... y después la cola
+reordenaba todo por confianza y la deshacía entera.
+
+No se puede diversificar la lista completa: la #9 terminaría con más puntaje que la #5 y
+vuelve el problema de *«me aparece una con más porcentaje que varias de las que ya me
+habías recomendado»*. Así que se baraja **dentro de cada tramo de la curva**. El tramo es
+lo que se ve en la tarjeta: todas las de un tramo muestran la misma posible nota, porque
+ahí el motor de verdad no las distingue. Barajarlas entre sí no rompe ningún orden que se
+pueda percibir —el número sigue bajando tarjeta a tarjeta— y saca a las doce del mismo
+rincón.
+
+**Y hasta ahí llega.** Medido sobre su tramo de arriba:
+
+```
+tramo 8.2 — 21 títulos, 18 con Animación, 3 sin
+tramo 7.5 —  7 títulos,  1 con Animación, 6 sin
+```
+
+El cupo mete las 3 que hay en los puestos 4, 5 y 8, y después no queda con qué: el tramo
+es 18 de 21 anime. Eso ya no es un problema de orden, es que el puntaje está dominado por
+su rincón más denso. Subir las del tramo 7.5 sería mentir sobre el número de la tarjeta.
+
+## La frase del póster
+
+*"Que al ver la película, la descripción y la foto ME DEN GANAS DE VERLA"*. El `overview`
+de TMDB cuenta la trama y arranca siempre igual; el `tagline` es la frase del póster, la
+que está escrita para engancharte. Va arriba del resumen, en la ficha.
+
+El problema era de plomería: `tmdb.mjs` cachea una lista fija de campos —*"lo que no está,
+no vuelve"*— y agregar uno obligaba a borrar el cache entero. En el hosting eso son tres
+mil requests de golpe, en los dos backends, y hay que acordarse de hacerlo.
+
+En vez de eso, el recorte lleva versión (`_v`). Lo cacheado con una versión vieja se
+ignora y se vuelve a pedir **solo, de a una, a medida que se usa**. No hay nada que correr
+a mano y no hay ningún momento en que la app esté vacía. Corriendo unas pocas búsquedas ya
+se habían migrado 758 de 3910 fichas; el resto entra cuando toque.
+
+## Harakiri segunda
+
+Con las reglas aflojadas, la lista de películas salió así: #1 El increíble castillo
+vagabundo, **#2 Harakiri (1962)**, **#3 Los Siete Samuráis (1954)**. Él: *"las primeras 2
+veo difícil que me gusten la verdad"*.
+
+Por qué estaban ahí: la regla de las viejas perdona la penalización de época si la
+película está muy bien puntuada (`excepcionPreAnioSiNota`), y las dos tienen 8.5 en TMDB.
+Pero de sus 286 puntuaciones **dos** son anteriores a 1980, y las dos son El Padrino.
+Creerle a TMDB ahí no es recomendarle su gusto, es recomendarle el canon.
+
+Ahora el indulto pide las dos cosas: nota alta **y** que él tenga alguna experiencia con
+esa época — al menos 5 puntuadas dentro de ±12 años. Si no, paga la época entera y la
+tarjeta lo dice («es de 1962, y de esa época casi no puntuaste nada»). Medido: Harakiri
+se fue de #2 a #6 y Los Siete Samuráis de #3 a #10.
+
+## Mis gustos eran MIS gustos
+
+Las dos reglas de arriba, la de los musicales, la de la animación infantil, la de los
+bucles temporales y la de «nada anterior al 2000 salvo que esté buenísima» vivían en
+`PREFS_POR_DEFECTO`. O sea: **el default de todo el mundo eran mis respuestas**.
+Cualquiera que se anotara heredaba mis manías sin haber dicho una palabra, y encima
+como varas duras — esas cosas no bajaban de puesto, desaparecían sin dejar rastro.
+
+Ahora el default es neutro. Las reglas siguen estando todas, apagadas; lo único
+prendido es lo que no es cuestión de gusto sino de no ofrecer basura (un piso de nota
+y de votos) y lo que sale de tus propios datos (las etiquetas con las que puntuaste).
+La pantalla de Mis gustos dice de cada regla si es **vara** o **descuento**, que es la
+única diferencia que de verdad importa entre dos reglas y estaba enterrada en el texto.
+
+Esto también afloja las reglas de los que ya estaban, porque las que nunca tocaron se
+leen del default. Es a propósito: eran justo las que hacían desaparecer títulos en
+silencio. Y como contrapeso, `filtrar()` ahora **cuenta** qué tiró cada regla y la
+pantalla lo dice abajo de los resultados:
+
+> Tus reglas dejaron afuera 66 títulos en esta búsqueda: 36 por pocos votos, 19 por
+> viejas sin nota alta, 11 por nota mínima. Se cambian en Mis gustos.
+
+Sin eso, «hay pelis que me podría ofrecer y nunca lo hizo» no se puede ni empezar a
+contestar: la lectura obvia es que el motor no las conoce, y no es eso — las vio y las
+tiró porque se lo pediste.
+
+## La marca no se veía nunca
+
+La barra de arriba era parte del scroll: al segundo scroll de una grilla de sesenta
+pósters el nombre se iba y la pantalla dejaba de ser de ninguna app en particular. Ahora
+es **fija**, con el fondo traslúcido, la marca a la izquierda y lo de la cuenta a la
+derecha. La barra lateral del escritorio arranca abajo de ella.
+
+Y la tarjeta pasó a ser **el póster entero**: el título iba en una franja gris debajo, que
+sumaba 55px por tarjeta sin mostrar nada que el póster no muestre — en una grilla de seis
+columnas eso es una fila de pósters perdida. Ahora va encima, sobre un degradado.
+
+## La barra al costado
+
+En el escritorio la app era una sola columna de 1080px, y arriba de los pósters
+estaban el buscador, siete presets, doce géneros, tres casillas y la duración. Para ver
+la cuarta recomendación había que achicar el zoom del navegador. Textual: *"para ver
+varias de las recomendaciones tengo que achicar mucho la pantalla"*.
+
+Arriba de 1000px la navegación y los filtros se van a una **barra al costado** que se
+queda quieta mientras la grilla scrollea, la grilla pasa a seis pósters por fila en vez
+de cuatro, y la tanda entera entra sin scrollear. Abajo de 1000px no cambia nada:
+sigue siendo una columna, y en el celular la navegación ya vivía abajo, al alcance del
+pulgar, que es lo que corresponde en una app.
 
 ## Firefly al 82%
 
@@ -914,6 +1363,77 @@ mejora está en el orden fino, y hace falta el marcador para saber si se nota.
   Lo que manda es el marcador de «La vi por acá».
 - «Serie» sin filtros sigue siendo casi todo anime: las series no están en MovieLens.
 - Nada posterior a octubre de 2023 tiene esta mitad.
+
+### La tabla v2: 12.185 películas en menos espacio
+
+La v1 guardaba el **triángulo entero** de similitudes: un byte por cada par. Eso crece
+con el CUADRADO de las películas, así que para que el archivo entrara en 5 MB la tabla
+tenía que quedarse en 4.396 — y la app lee **30 vecinas por fila**, o sea que el 99,3%
+del archivo no se abría nunca.
+
+Ahora se guardan las **150 vecinas más parecidas de cada una**. Crece lineal:
+
+| | v1 | v2 |
+|---|---|---|
+| películas | 4.396 | **12.185** |
+| archivo | 5,3 MB | **4,9 MB** |
+| de los 2010s | 801 | **2.827** |
+| de los 2020s | 50 | **442** |
+| de sus 243 películas | 212 (87%) | **231 (95%)** |
+
+El piso de votos de MovieLens bajó de 1.000 a 100. Las que tienen pocos votos entran
+con similitudes bajas por el encogimiento `n/(n+100)`, así que se protege sola: una
+película con 120 votos no se va a colar arriba por ruido.
+
+Las filas se guardan **ordenadas por índice**, no por similitud, porque la app nunca
+pide "las vecinas de ésta": pide "cuánto se parecen estas dos", y ordenado por índice
+eso es una búsqueda binaria. Como la lista no es simétrica —B puede estar entre las 150
+de A sin que A esté entre las 150 de B—, `sim()` mira las dos filas y se queda con la
+que aparezca.
+
+**Qué cambió, medido** (mismo backtest, mismas 259 puntuaciones):
+
+    top 10:  3 → 4 de sus 9-10 · 1 → 0 de sus 1-6
+    top 30:  7 → 9 de sus 9-10
+    mediana de sus 9-10: puesto 73 → 68 de 559
+    candidatas del catálogo que pasan su vara: 28 → 33 de 300
+    AUC 9-10 contra el catálogo: 0.883 → 0.878 (igual, dentro del ruido)
+
+Y en la lista de verdad aparecieron títulos que **antes no se podían puntuar**: Jujutsu
+Kaisen 0, Demon Slayer Mugen Train, Quiero comerme tu páncreas, Paprika, Dragon Ball
+Super Broly. Ninguna estaba en las 4.396.
+
+**Lo que NO arregló:** la lista sigue siendo 12 de 12 animadas. La tabla mejora cómo se
+PUNTÚA lo que ya se juntó; no cambia de dónde salen las candidatas. Eso es otro trabajo.
+
+
+### Y de vuelta a la mitad, con la tabla v2
+
+El cuarto se eligió con la tabla vieja, de 4.396 películas, donde el 87% de las suyas
+entraba y el catálogo reciente casi no existía. Con la v2 (12.185, el 95% de las suyas)
+el cuarto quedó corto. Barrido sobre sus 259, dejando una afuera:
+
+| peso | 0 | 0.25 | 0.35 | 0.45 | **0.55** | 0.7 |
+|---|---|---|---|---|---|---|
+| AUC de sus 9-10 | .807 | .831 | .835 | .839 | **.842** | .838 |
+
+Se aplana entre 0.45 y 0.55, así que va **0.5**. En el pool realista lo que cambió es
+lo de abajo, no lo de arriba: de sus 30 primeras, las que puntuó **1-6 pasaron de 1 a
+cero**, y las candidatas del catálogo que pasan su vara de 28 a 35.
+
+**Por qué empuja para el lado correcto.** Sus 33 notas de 9-10: **sólo 7 son animadas**.
+Las otras 26 son El Padrino I y II, Breaking Bad, Nueve reinas, El secreto de sus ojos,
+La vida es bella, Volver al Futuro, El caballero de la noche, Avengers. Y sin embargo el
+perfil le pone a **Animación 3.40**, el peso más alto de todos, arriba de Aventura 2.05
+y Drama.
+
+No es un error de la fórmula — probé pesar el z al cubo y contar sólo los 9-10, y
+Animación gana igual. Es que **el género es la unidad equivocada** para su lado de
+imagen real: sus 30 animadas son un bloque coherente que siempre puntúa arriba de su
+media, mientras que sus 26 obras maestras están repartidas en diez géneros distintos y
+ninguno junta peso. Lo que une a El Padrino con Nueve reinas y con Breaking Bad no es un
+género: es la gente que las ama. Eso el motor de rasgos no lo puede ver y la tabla sí.
+
 
 ### Armarla y subirla
 

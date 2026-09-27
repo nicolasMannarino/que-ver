@@ -190,6 +190,27 @@ export function rasgos(d, kind) {
   };
 }
 
+// Lo poco que trae /discover: género, década e idioma. Con eso alcanza para decidir
+// por cuál título preguntarle en la pestaña Puntuar sin pedir 120 fichas enteras —
+// una pantalla se arma con dos consultas en vez de ciento veinte.
+export function rasgosLivianos({ generosIds = [], anio = null, idioma = null }) {
+  const gen = [...new Set(generosIds.flatMap(g => GENERO_TV_A_CINE[g] || [g]))].map(id => "gen:" + id);
+  const dec = anio ? ["dec:" + Math.floor(anio / 10) * 10] : [];
+  const lang = idioma ? ["lang:" + idioma] : [];
+  return [...gen, ...dec, ...lang];
+}
+
+// Cuánta opinión tiene YA el perfil sobre un título, con esos tres rasgos nomás. No
+// es la afinidad de verdad —le faltan keywords, director y reparto—, pero para saber
+// si el motor está decidido o no alcanza, y cerca de cero es donde conviene preguntar.
+export function opinionLiviana(p, ficha) {
+  const f = rasgosLivianos(ficha);
+  if (!f.length) return 0;
+  let s = 0;
+  for (const x of f) s += p.score.get(x) || 0;
+  return s / Math.sqrt(f.length);
+}
+
 export async function fichas(items, onProgress) {
   let hechas = 0;
   const out = await T.pool(items, 8, async (it) => {
@@ -211,19 +232,18 @@ const NOSTALGIA = new Set(["de chico", "de chica", "de pibe", "nostalgia", "de n
 // vecino y no puede ser semilla. La nota queda en su lista — Toy Story 10 es cierto
 // — pero deja de opinar sobre lo que se le ofrece hoy.
 //
-// Hace falta porque "de chico" (que pesa 0.35) no alcanzaba: de sus 30 animadas no
-// japonesas, 12 no estaban etiquetadas y pesaban completo. Entre las 37 animadas
-// promedian 8.24 contra su media de 7.15, y el género Animación terminó con peso
-// 2.882 — uno de los rasgos más fuertes de todo su perfil. Con la vara alta, el
-// 100% de lo que pasaba era animado, y destildar "Sin animación" lo dejaba en cero.
+// "De chico" cuenta lo mismo. Pesaba 0.35, y ese tercio tenía una fuga: el peso
+// bajaba los rasgos sueltos, pero la película seguía entrando a `vecinos` con su
+// nota entera, así que afinidadVecinos() —que es la mitad de la afinidad— la leía
+// como un 10 más. De sus 27 "de chico" él ya había marcado 25 "no tener en cuenta"
+// a mano: el tercio no era una posición, era trabajo manual para tapar la fuga.
 const NO_CUENTA = new Set(["no cuenta", "no tener en cuenta", "no me representa"]);
-export const noCuenta = (v) => (v.motivos || []).some(x => NO_CUENTA.has(x));
+export const noCuenta = (v) =>
+  (v.motivos || []).some(x => NO_CUENTA.has(x) || NOSTALGIA.has(x));
 
-// Cuánto opina cada título suyo: «no tener en cuenta» nada, «de chico» un tercio.
-// Lo usa también la tabla de vecinas, para que las dos mitades de la nota lean sus
-// etiquetas igual.
-export const pesoEnPerfil = (v) =>
-  noCuenta(v) ? 0 : (v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1;
+// Cuánto opina cada título suyo. Lo usa también la tabla de vecinas, para que las
+// dos mitades de la nota lean sus etiquetas igual.
+export const pesoEnPerfil = (v) => (noCuenta(v) ? 0 : 1);
 
 // Lo que le tentó y lo que no desde la tarjeta: «Me la guardo» y «No me interesa».
 // Cada toque pesa como una nota medio desvío arriba o abajo de su promedio.
@@ -239,10 +259,7 @@ export function perfil(todas, { reacciones = [] } = {}) {
 
   const pesos = new Map(), cuenta = new Map();
   for (const v of vistas) {
-    // "De chico" no borra la nota — Toy Story 10 es cierto — pero no puede mandar
-    // en lo que le ofrezco hoy. Cuenta un tercio.
-    const nostalgia = (v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1;
-    const w = nostalgia * (v.rating - media) / desvio;   // z-score: +alto le gustó, -bajo no
+    const w = (v.rating - media) / desvio;   // z-score: +alto le gustó, -bajo no
     for (const f of v.features) {
       pesos.set(f, (pesos.get(f) || 0) + w);
       cuenta.set(f, (cuenta.get(f) || 0) + 1);
@@ -274,7 +291,6 @@ export function perfil(todas, { reacciones = [] } = {}) {
   const gustadas = [];
   const candidatasSemilla = vistas
     .filter(v => v.rating >= media + 0.3)
-    .filter(v => !(v.motivos || []).some(x => NOSTALGIA.has(x)))
     .sort((a, b) => b.rating - a.rating);
   for (const v of candidatasSemilla) {
     if (v.coleccion) {
@@ -326,10 +342,6 @@ export function perfil(todas, { reacciones = [] } = {}) {
   const perfilesMotivo = new Map();
   for (const [mot, marcadas] of porMotivo) {
     if (marcadas.length < 3) continue;              // con menos no hay patrón, hay ruido
-    // "De chico" NO es "no me gustó": es "esta nota es de otra época". Ya pesa un
-    // tercio en el perfil; usarla además como castigo mezcla dos cosas distintas.
-    // A la animación occidental la baja su propia regla, que es explícita.
-    if (NOSTALGIA.has(mot)) continue;
     const frec = new Map();
     for (const v of marcadas) for (const f of new Set(v.features)) frec.set(f, (frec.get(f) || 0) + 1);
     const perfil = new Map();
@@ -350,7 +362,12 @@ export function perfil(todas, { reacciones = [] } = {}) {
   const conNota = vistas.filter(v => v.nota > 0);
   const notaMedia = conNota.length ? conNota.reduce((s, v) => s + v.nota, 0) / conNota.length : null;
 
-  return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo, notaMedia,
+  // Los años de lo que vio. Sirve para saber si tiene experiencia con una época o
+  // si de esa época no puntuó nunca nada: no es lo mismo recomendarle algo del 54
+  // a alguien que puntuó treinta películas de los 50 que a alguien que puntuó dos.
+  const anios = vistas.map(v => v.anio || v.d?.anio).filter(Boolean).sort((a, b) => a - b);
+
+  return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo, notaMedia, anios,
            motivosUsados: [...porMotivo.entries()].map(([m, xs]) => [m, xs.length]),
            votosMedios, durMedia, total: vistas.length, reacciones: reacciones.length };
 }
@@ -425,24 +442,38 @@ export async function completarDuracion(cands, prefs) {
 }
 
 // Saca lo que no tiene sentido ofrecerle, aunque puntúe alto
-export function filtrar(cands, p, prefs = null) {
+// Abajo de esto es un corto, no una película.
+const MINUTOS_DE_PELICULA = 40;
+
+// `descartes` es opcional: un objeto donde anotar cuántas tira cada regla. Sin
+// eso, "hay pelis que me podría ofrecer y nunca lo hizo" no se puede contestar
+// — las reglas de Mis gustos son varas duras y desaparecen sin dejar rastro.
+export function filtrar(cands, p, prefs = null, descartes = null) {
   const hoy = new Date().toISOString().slice(0, 10);
+  const tirar = (regla) => { if (descartes) descartes[regla] = (descartes[regla] || 0) + 1; return false; };
   return cands.filter(c => {
     const d = c.detalle;
     // Otra de una saga que ya tiene puntuada: o la vio, o la salteó a propósito
-    if (d?.coleccion && p.colecciones.has(d.coleccion)) return false;
+    if (d?.coleccion && p.colecciones.has(d.coleccion)) return tirar("saga que ya puntuaste");
     if (!c.fecha || c.fecha > hoy) return false;      // todavía no se estrenó
 
     // Piso de calidad general. Sin esto la lista arrancaba bien y se caía a pique
     // en el puesto 5: cuando quedan pocos candidatos, el relleno es cualquier cosa.
-    if ((c.votos || 0) < pisoVotos(prefs?.votosMinimos ?? 30, c.kind)) return false;
-    if (prefs?.notaMinima && (c.nota || 0) < prefs.notaMinima) return false;
+    if ((c.votos || 0) < pisoVotos(prefs?.votosMinimos ?? 30, c.kind)) return tirar("pocos votos");
+    if (prefs?.notaMinima && (c.nota || 0) < prefs.notaMinima) return tirar("nota mínima");
+
+    // Un corto no es una película. «Para Pajaritos» —3 minutos de Pixar, TMDB 7.5 y
+    // 6.000 votos— salía décima entre sus recomendadas de cine: pasa todas las varas de
+    // calidad porque es buenísimo, y no sirve para nada cuando lo que querés es qué ver
+    // esta noche. Si no se sabe cuánto dura no se puede decir que sea corto, y queda.
+    if (c.kind === "movie" && d?.dur && d.dur < MINUTOS_DE_PELICULA) return tirar("cortometrajes");
+
 
     // "Si son anteriores al 2000, en general deberían ser buenas": para lo viejo
     // la nota no descuenta, es una vara. Si no la pasa, ni aparece.
     const anio = d?.anio ?? c.anio;
     if (prefs?.notaMinimaViejas && prefs?.anioMinimo && anio && anio < prefs.anioMinimo) {
-      if ((c.nota || 0) < prefs.notaMinimaViejas) return false;
+      if ((c.nota || 0) < prefs.notaMinimaViejas) return tirar("viejas sin nota alta");
     }
 
     // "No suelo mirar series en coreano, chino o japonés, a menos que sea anime o
@@ -455,10 +486,10 @@ export function filtrar(cands, p, prefs = null) {
     const muyBuena = (nota, votos) => (c.nota || 0) >= nota && (c.votos || 0) >= votos;
     if (c.kind === "tv" && d && !(d.generosIds || []).includes(16)) {
       if (prefs?.idiomasSoloMuyBuenas?.includes(d.d?.original_language)
-          && !muyBuena(prefs.notaMinimaIdioma ?? 8, prefs.votosMinimosIdioma ?? 2500)) return false;
+          && !muyBuena(prefs.notaMinimaIdioma ?? 8, prefs.votosMinimosIdioma ?? 2500)) return tirar("series en esos idiomas");
       if (prefs?.aniosSciFiVieja && anio && anio <= +hoy.slice(0, 4) - prefs.aniosSciFiVieja
           && (d.generosIds || []).includes(10765)
-          && !muyBuena(prefs.notaMinimaSciFiVieja ?? 8.5, prefs.votosMinimosSciFiVieja ?? 2500)) return false;
+          && !muyBuena(prefs.notaMinimaSciFiVieja ?? 8.5, prefs.votosMinimosSciFiVieja ?? 2500)) return tirar("ciencia ficción vieja");
     }
 
     // "Con tantos capítulos es muy difícil que me den ganas de verla, a menos que
@@ -470,7 +501,7 @@ export function filtrar(cands, p, prefs = null) {
     // afuera; completarDuracion() ya lo buscó en la primera temporada.
     if (c.kind === "tv" && prefs?.episodiosSoloMuyBuenas && (d?.episodios || 0) > prefs.episodiosSoloMuyBuenas) {
       const corta = d.dur && d.dur <= (prefs.minutosCapituloLargas ?? 30);
-      if (!corta || !muyBuena(prefs.notaMinimaLargas ?? 8.5, prefs.votosMinimosLargas ?? 2500)) return false;
+      if (!corta || !muyBuena(prefs.notaMinimaLargas ?? 8.5, prefs.votosMinimosLargas ?? 2500)) return tirar("series larguísimas");
     }
     return true;
   });
@@ -501,6 +532,25 @@ export function diversificar(lista, n, maxPorGenero = 3, maxPorRincon = 2) {
     if (!elegidos.includes(c)) elegidos.push(c);
   }
   return elegidos;
+}
+
+// Cuando la vara de confianza deja menos de `n`, completa con las mejores de las
+// que dejó afuera, de mayor a menor. Devolver media lista no es ser exigente, es no
+// funcionar: pidiendo solo películas sus varas dejan 18 candidatas sobre 3321, y la
+// pantalla queda casi vacía.
+// No cuesta ninguna consulta más —las rechazadas ya vinieron y ya están puntuadas—
+// y van marcadas: la diferencia entre "esto pasa tu vara" y "esto es lo que hay"
+// tiene que verse en la tarjeta, si no el relleno se disfraza de recomendación.
+export const AVISO_RELLENO = "abajo de tu vara de confianza";
+export function completarCupo(elegidas, rechazadas, n) {
+  const faltan = n - elegidas.length;
+  if (faltan <= 0) return [];
+  const ya = new Set(elegidas.map(c => c.key));
+  return rechazadas
+    .filter(c => !ya.has(c.key))
+    .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0))
+    .slice(0, faltan)
+    .map(c => ({ ...c, avisos: [...(c.avisos || []), AVISO_RELLENO] }));
 }
 
 // --- 3. Candidatos: salen de las pelis que le gustaron, no de la nada ---
@@ -751,18 +801,23 @@ export async function candidatosDesde(semilla, { excluir = new Set(), paginas = 
 // keywords, catálogo por género). Esta sale de la tabla de vecinas: solo películas,
 // solo si hay tabla. Vienen con el id y nada más; título, fecha, póster y votos los
 // completa enriquecer() con la ficha de TMDB.
-export function candidatosVecinas(p, { excluir = new Set(), n = 30, prefs = null, excluirGeneros = null } = {}) {
+export function candidatosVecinas(p, { excluir = new Set(), n = 30, prefs = null, excluirGeneros = null, sinViejas = false } = {}) {
   if (!p.mezcla?.params) return [];
   // No gastar lugares en lo que sus reglas van a bajar igual. Es la versión gruesa
   // —la tabla sabe el año y si es animada, no la nota de TMDB ni si es familiar—;
   // la fina la aplica preferencias() como a cualquier otra candidata.
   const sinAnimacion = (excluirGeneros || []).includes(16);
   const animacionNo = sinAnimacion || prefs?.penalizarAnimacionOccidental > 0 || prefs?.penalizarInfantil > 0;
-  // El año mínimo, igual que las otras fuentes, que se lo piden a TMDB
-  // (primary_release_date.gte). Primero lo ataba a que el descuento por vieja
-  // estuviera prendido; él lo tiene en 0, así que esta fuente traía Forrest Gump
-  // y clásicos del 60 que antes no aparecían. *"Encima me recomendó películas viejas."*
-  const desde = prefs?.anioMinimo || 0;
+  // El año. Cortaba en prefs.anioMinimo y listo, y así esta fuente —la única que no
+  // pasa por géneros— cortaba MÁS FUERTE que todas las demás: para el resto, "anterior
+  // al 2000" no es una pared sino un castigo (penalizacionPreAnio) más una vara de
+  // calidad (notaMinimaViejas), y lo viejo que quedó como clásico pasa igual. Acá no
+  // llegaba a que filtrar() decidiera: se perdían Harakiri (1.25 de confianza, YA con
+  // el castigo puesto) y Los siete samuráis (1.17), las dos mejores de imagen real que
+  // conoce la tabla, mientras lo mejor que le ofrecía sin animación daba 0.73.
+  // Ahora corta solo cuando lo viejo está prohibido de verdad: el tilde "nada anterior
+  // al 2000". Sin el tilde decide filtrar(), como con cualquier otra candidata.
+  const desde = sinViejas ? (prefs?.anioMinimo || 0) : 0;
   const filtro = ({ anio, animacion }) =>
     !(desde && anio && anio < desde) &&
     !(sinAnimacion && animacion) &&
@@ -880,10 +935,33 @@ const GENEROS_QUE_NO_SON_DRAMA_HABLADO = new Set([
   10751, // Familia
 ]);
 
+// Cuánto se tiene que parecer a las marcadas con un motivo para que cuente. La suma
+// es de pesos del perfil de ese motivo, que son diferencias de frecuencia: el más alto
+// de «lenta» es 0.27, así que la vara vive en décimas. Estaba en 0.9 y con eso la regla
+// no existía — pegaba en 2 títulos de 4856 del catálogo y en 1 de sus 259 puntuadas.
+// Barrida con backtest.mjs: de 0.45 a 0.35 la precisión de arriba es la misma y no toca
+// NINGUNA de sus 15 notas 9-10; abajo de 0.30 empieza a llevárselas puestas. 0.40 es el
+// medio de esa meseta y pega en el 3.7% del catálogo.
+// Es un umbral absoluto sobre pesos que crecen con cuánto etiquete: si algún día marca
+// el triple de películas, hay que volver a barrerlo.
+const VARA_MOTIVO = 0.4;
+
 // --- 4. Preferencias declaradas ---
 // Son las que las puntuaciones NO enseñan solas: que la serie esté terminada,
 // que no sea eterna, que no sea vieja. Devuelve el ajuste y por qué.
-export function preferencias(c, prefs, p_perfiles = null) {
+// Cuántas puntuadas suyas hay cerca de un año, y cuántas hacen falta para que el
+// "si está muy buena, la perdono" de las viejas valga. Sin esto, el indulto se lo
+// daba la nota de TMDB: Harakiri (1962, TMDB 8.5) y Los Siete Samuráis (1954, 8.5)
+// pagaban 0.27 en vez de 0.9 y salían segunda y tercera. Pero de sus 286
+// puntuaciones solo DOS son anteriores a 1980, y las dos son El Padrino. Creerle
+// a TMDB ahí es recomendarle el canon, no su gusto: él lo dijo derecho, «las
+// primeras 2 veo difícil que me gusten».
+const VENTANA_EPOCA = 12;
+const MINIMO_EPOCA = 5;
+const sabeDeLaEpoca = (anios, anio) =>
+  !anios?.length || anios.filter(a => Math.abs(a - anio) <= VENTANA_EPOCA).length >= MINIMO_EPOCA;
+
+export function preferencias(c, prefs, p_perfiles = null, anios = null) {
   if (!prefs) return { ajuste: 0, notas: [] };
   let ajuste = 0;
   const notas = [];
@@ -897,9 +975,13 @@ export function preferencias(c, prefs, p_perfiles = null) {
 
   // Antes de 2000 solo si es muy buena
   if (prefs.anioMinimo && d.anio && d.anio < prefs.anioMinimo) {
-    const indulto = (c.nota || 0) >= (prefs.excepcionPreAnioSiNota ?? 99);
+    // El indulto pide las dos cosas: que esté muy bien puntuada Y que él tenga
+    // alguna experiencia con esa época. Si de esos años no puntuó casi nada, la
+    // nota de TMDB no dice que le vaya a gustar, dice que es un clásico.
+    const conoce = sabeDeLaEpoca(anios, d.anio);
+    const indulto = (c.nota || 0) >= (prefs.excepcionPreAnioSiNota ?? 99) && conoce;
     ajuste -= (prefs.penalizacionPreAnio ?? 0.9) * (indulto ? 0.3 : 1);
-    if (!indulto) notas.push("es de " + d.anio);
+    if (!indulto) notas.push("es de " + d.anio + (conoce ? "" : ", y de esa época casi no puntuaste nada"));
   }
 
   // Ciencia ficción y fantasía viejas: los efectos son lo que peor envejece, y
@@ -946,7 +1028,7 @@ export function preferencias(c, prefs, p_perfiles = null) {
     for (const [mot, perfil] of p_perfiles) {
       let coincide = 0;
       for (const f of (d.features || [])) if (perfil.has(f)) coincide += perfil.get(f);
-      if (coincide > 0.9) {
+      if (coincide > VARA_MOTIVO) {
         ajuste -= prefs.penalizarMotivos * Math.min(1, coincide);
         notas.push("se parece a las que marcaste «" + mot + "»");
       }
@@ -1044,14 +1126,13 @@ export function afinidadesSinCadaUna(vistas) {
   const n = vistas.length;
   if (n < 2) return vistas.map(() => 0);
   const r = vistas.map(v => v.rating);
-  const nost = vistas.map(v => ((v.motivos || []).some(x => NOSTALGIA.has(x)) ? 0.35 : 1));
-  // Por rasgo: suma de nostalgia·nota, suma de nostalgia, y cuántas veces aparece.
-  // El peso de perfil() es Σ nost·(nota − media)/desvío = (A − media·B)/desvío.
-  const A = new Map(), B = new Map(), C = new Map();
+  // Por rasgo: suma de notas y cuántas veces aparece. El peso que le pone perfil()
+  // es Σ(nota − media)/desvío = (A − media·C)/desvío, así que restar la parte de un
+  // título es restarle su nota a A y su cuenta a C.
+  const A = new Map(), C = new Map();
   vistas.forEach((v, i) => {
     for (const f of v.features) {
-      A.set(f, (A.get(f) || 0) + nost[i] * r[i]);
-      B.set(f, (B.get(f) || 0) + nost[i]);
+      A.set(f, (A.get(f) || 0) + r[i]);
       C.set(f, (C.get(f) || 0) + 1);
     }
   });
@@ -1076,7 +1157,7 @@ export function afinidadesSinCadaUna(vistas) {
     for (const f of v.features) {
       const k = propias.get(f), c = C.get(f) - k;
       if (c <= 0) continue;                       // solo lo tenía él: sin puntaje
-      rasgos += (A.get(f) - k * nost[i] * r[i] - m * (B.get(f) - k * nost[i])) / d / Math.sqrt(c);
+      rasgos += (A.get(f) - k * r[i] - m * c) / d / Math.sqrt(c);
     }
     rasgos /= Math.sqrt(v.features.length);
 
@@ -1102,7 +1183,7 @@ export function afinidadesSinCadaUna(vistas) {
   });
 }
 
-export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8, preds: dadas = null } = {}) {
+export function calibrar(todas, muestra = Infinity, { minBloque = 30, prior = 8, preds: dadas = null, umbral = 7, valorDe = null } = {}) {
   // Las que él sacó del perfil tampoco calibran: si no representan su gusto, no
   // pueden decidir qué significa un 78%.
   const vistas = todas.filter(v => !noCuenta(v));
@@ -1114,36 +1195,40 @@ export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8,
   // `dadas`: las predicciones ya mezcladas con las vecinas (prepararMezcla), en el
   // mismo orden que `vistas`. La curva tiene que traducir lo que de verdad ordena.
   const preds = dadas || afinidadesSinCadaUna(vistas);
+  // El desenlace que se promedia. Por defecto es un sí/no —"¿le gustó?"—, pero
+  // puede ser la nota misma: la isotónica no sabe la diferencia, promedia lo que
+  // le den. De ahí sale calibrarNota().
+  const valor = valorDe || ((v) => (v.rating >= umbral ? 1 : 0));
   const puntos = [];
   for (let i = 0; i < vistas.length; i += paso) {
-    puntos.push({ pred: preds[i], gusto: vistas[i].rating >= 7 });
+    puntos.push({ pred: preds[i], gusto: valor(vistas[i]) });
   }
   puntos.sort((a, b) => a.pred - b.pred);
   // Probabilidad LOCAL: de las que puntuaron parecido a este nivel, cuántas le
   // gustaron. La acumulada ("de acá para arriba") daba 89-96% para todo y no
   // servía para elegir entre dos opciones.
-  let bloques = isotonica(puntos.map(p => ({ suma: p.gusto ? 1 : 0, n: 1, corte: p.pred })));
-
-  // Un porcentaje sostenido por UNA película no es un porcentaje. La isotónica
-  // sobre datos binarios siempre termina en bloques puros: los 20 tramos de
-  // arriba tenían n=1 cada uno y publicaban "100%" (la tarjeta lo mostraba
-  // como 96%) porque esa única película le había gustado. Cada bloque tiene que
-  // llegar a minBloque observaciones o fusionarse con el vecino más flaco.
-  let cambio = true;
-  while (cambio && bloques.length > 1) {
-    cambio = false;
-    for (let i = 0; i < bloques.length; i++) {
-      if (bloques[i].n >= minBloque) continue;
-      const j = i === 0 ? 1
-        : i === bloques.length - 1 ? i - 1
-        : (bloques[i - 1].n <= bloques[i + 1].n ? i - 1 : i + 1);
-      const [a, b] = i < j ? [i, j] : [j, i];
-      bloques[a].suma += bloques[b].suma;
-      bloques[a].n += bloques[b].n;
-      bloques[a].corte = Math.min(bloques[a].corte, bloques[b].corte);
-      bloques.splice(b, 1);
-      cambio = true;
-      break;
+  //
+  // PRIMERO agrupar de a minBloque, DESPUÉS la isotónica. Antes era al revés
+  // —isotónica sobre puntos sueltos y después fusionar los bloques flacos— y esa
+  // fusión se comía el tope. Medido sobre sus 259: el bloque de arriba terminaba
+  // arrancando en 0.55 con 54 títulos adentro, así que TODA la primera pantalla
+  // mostraba el mismo número. Y era falso: arriba de 0.92 sus notas dan 8.2 de
+  // promedio y 78% de 8+, contra 7.5 y 57% en el tramo de abajo. La fusión no
+  // estaba suavizando ruido, estaba borrando la parte que más importa.
+  //
+  // Agrupando primero, cada bloque nace con minBloque observaciones y la
+  // isotónica solo junta los que de verdad se contradicen. La cola, si queda
+  // menos de 60% de un bloque, se pega al anterior en vez de publicar un
+  // promedio sostenido por tres títulos.
+  let bloques = [];
+  for (let i = 0; i < puntos.length; i += minBloque) {
+    const trozo = puntos.slice(i, i + minBloque);
+    const suma = trozo.reduce((t, x) => t + +x.gusto, 0);
+    if (trozo.length < minBloque * 0.6 && bloques.length) {
+      const u = bloques[bloques.length - 1];
+      u.suma += suma; u.n += trozo.length;
+    } else {
+      bloques.push({ suma, n: trozo.length, corte: trozo[0].pred });
     }
   }
   bloques = isotonica(bloques);
@@ -1151,12 +1236,29 @@ export function calibrar(todas, muestra = Infinity, { minBloque = 20, prior = 8,
   // Y encima se encoge hacia su tasa base (cuánto le gusta lo que ve en
   // general). Con prior=8, un bloque chico y optimista se acerca al promedio en
   // vez de prometer el 100%; uno grande casi no se mueve.
-  const base = puntos.filter(p => p.gusto).length / puntos.length;
+  const base = puntos.reduce((t, p) => t + +p.gusto, 0) / puntos.length;
   return bloques.map(b => ({
     corte: b.corte,
     prob: (b.suma + prior * base) / (b.n + prior),
     n: b.n,
   }));
+}
+
+// La misma curva pero sobre la NOTA, no sobre un sí/no: "de las que puntuás
+// parecido a esta, ¿qué nota les pusiste?". Es lo único que se puede poner en la
+// esquina del póster sin mentir. Un porcentaje ahí arriba se satura —medido, las
+// diez primeras de una tanda decían todas 66%— y encima no se entiende de qué
+// habla; una nota en la escala del 1 al 10, que es la que él mismo usa, se lee
+// sola y deja claro que nadie le está prometiendo un 10 seguro.
+export function calibrarNota(todas, opciones = {}) {
+  const c = calibrar(todas, Infinity, { ...opciones, valorDe: (v) => v.rating });
+  return c ? c.map(b => ({ corte: b.corte, nota: b.prob, n: b.n })) : null;
+}
+export function notaEsperada(curva, valor) {
+  if (!curva?.length) return null;
+  let mejor = curva[0].nota;
+  for (const c of curva) { if (c.corte > valor) break; mejor = c.nota; }
+  return mejor;
 }
 
 // Dado un puntaje, qué proporción de lo que puntúa parecido le gustó
@@ -1206,10 +1308,18 @@ const promedio = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const dispersion = (xs, m) => Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length) || 1;
 
 // Cuánto pesa la tabla de vecinas. Empezó en la mitad y él, usándola: *"cambió
-// DEMASIADO las cosas que me recomienda"*, *"mucho romance"*, *"mucho drama"*. Medido
-// en los mismos sorteos, un cuarto conserva casi toda la mejora y pierde muchas menos
-// veces contra el motor solo (con 15: 6 de 60 en vez de 15; con 60: ninguna).
-export const PESO_VECINAS = 0.25;
+// DEMASIADO las cosas que me recomienda"*, *"mucho romance"*, *"mucho drama"*. Se bajó
+// a un cuarto y así quedó mientras la tabla tenía 4.396 películas.
+//
+// Con la tabla v2 (12.185 películas, el 95% de las suyas adentro) el cuarto quedó corto.
+// Barrido sobre sus 259, dejando una afuera:
+//   peso   0    0.25   0.35   0.45   0.55   0.7
+//   AUC    .807  .831   .835   .839   .842   .838   <- sus 9-10 contra el resto
+// Se aplana entre 0.45 y 0.55, así que va el medio. Y empuja para el lado que hace
+// falta: lo que une a El Padrino, Nueve reinas y Breaking Bad —sus 9-10 de imagen
+// real— no es ningún género, es la gente que las ama. El motor de rasgos no lo ve;
+// la tabla sí.
+export const PESO_VECINAS = 0.5;
 
 export const mezclar = (q, motor, vecinas) =>
   q.ma + q.sa * ((1 - PESO_VECINAS) * (motor - q.ma) / q.sa + PESO_VECINAS * (vecinas - q.mc) / q.sc) / q.sm;
@@ -1270,7 +1380,7 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     const calidad = (c.nota || 0) / 10;
     const conVotos = c.votos > 60 ? 1 : c.votos / 60;   // cosas sin votos son ruido
 
-    const pref = preferencias(c, prefs, p.perfilesMotivo);
+    const pref = preferencias(c, prefs, p.perfilesMotivo, p.anios);
     c.avisos = pref.notas;
     // La confianza tiene que incluir sus reglas declaradas, no solo la afinidad
     // de gusto. Si no, ordenar por confianza ignoraba "nada de animación", "nada

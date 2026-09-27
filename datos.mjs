@@ -13,63 +13,75 @@ const F_USUARIOS = "usuarios.json";
 export const leer = A.leer;
 export const escribir = A.escribir;
 
+// Con qué arranca alguien que recién se anota. Eran MIS respuestas —nada de
+// K-dramas, nada anterior al 2000 salvo que sea buenísima, los musicales abajo,
+// nada de bucles temporales— metidas como el default de todo el mundo. Cualquiera
+// que abriera la app heredaba mis manías sin haber dicho una palabra, y encima
+// como varas duras: esas cosas no bajaban de puesto, desaparecían.
+//
+// Ahora el default es neutro: las reglas existen todas, pero apagadas. Las únicas
+// que quedan prendidas son las que no son cuestión de gusto sino de no mostrar
+// basura —un piso de nota y de votos— y las que salen de tus PROPIOS datos —los
+// motivos con los que etiquetaste tus puntuaciones—. El resto se prende en Mis
+// gustos, y ahí cada una dice qué hace.
+//
+// Ojo: esto también afloja las reglas de los que ya estaban, porque las que nunca
+// tocaron se leen de acá. Es a propósito: eran justo las que hacían desaparecer
+// títulos sin dejar rastro. La pantalla ahora cuenta cuántos tiró cada una.
 export const PREFS_POR_DEFECTO = {
-  _comentario: "Tus preferencias. Son las reglas que las puntuaciones no enseñan solas. Se releen en cada búsqueda: editás y recargás la página.",
+  _comentario: "Tus preferencias. Son las reglas que las puntuaciones no enseñan solas. Se editan desde «Mis gustos».",
+
+  // --- Piso de calidad. Lo único prendido de entrada: no es gusto, es no ofrecer
+  // cualquier cosa cuando quedan pocos candidatos. ---
+  notaMinima: 6.0,
+  votosMinimos: 100,
+  confianzaMinima: 0.3,
+
+  // --- Las viejas. anioMinimo marca desde cuándo es "vieja"; la vara y el
+  // descuento arrancan en cero, o sea que una del 70 compite de igual a igual. ---
   anioMinimo: 2000,
-  penalizacionPreAnio: 0.9,
+  notaMinimaViejas: 0,
+  penalizacionPreAnio: 0,
   excepcionPreAnioSiNota: 8.2,
-  notaMinimaViejas: 8.0,
-  penalizarEfectosViejos: 1.2,
-  notaMinima: 6.4,
-  votosMinimos: 150,
-  seriesTerminadas: true,
-  penalizacionSerieAbierta: 0.8,
+  penalizarEfectosViejos: 0,
+
+  // --- Series. Apagadas: hay gente que las quiere largas y en emisión. ---
+  seriesTerminadas: false,
+  penalizacionSerieAbierta: 0,
   maxEpisodios: 60,
-  penalizacionEpisodios: 0.8,
-  bonusCapituloCorto: 0.25,
-  penalizarInfantil: 2.2,
-  penalizarAnimacionOccidental: 1.6,
-  penalizarFamilia: 1.4,
-  // Apagada por defecto. La escribí en 1.2 porque él dijo "si es 100% hablada sin
-  // un poquito de accion es dificil que me guste", pero medida contra sus 285 es
-  // una moneda: toca 17 titulos y se lleva 6 que puntuo 8+ contra 6 que puntuo 6-.
-  // Y el propio interesado la desarmo con dos contraejemplos: Tetris (7) y Primal
-  // Fear (8) son puro dialogo y le encantaron. El genero no captura esta dimension
-  // — ya estaba medido: correlaciona -0.001 con sus notas. Queda la perilla por si
-  // alguien la quiere, en 0 por defecto.
-  penalizarSoloHablada: 0,
-  // "No suelo mirar series en coreano, chino o japonés a menos que sea anime o
-  // que esté muy bueno." Series de imagen real en esos idiomas, solo si pasan
-  // nota Y votos: la nota sola no dice nada, TMDB le da 8.5 a cualquier K-drama.
-  // 2500 votos de serie es estar entre las ~200 más votadas de TMDB.
-  idiomasSoloMuyBuenas: ["ko", "zh", "cn", "ja"],
-  notaMinimaIdioma: 8.0,
-  votosMinimosIdioma: 2500,
-  // "Si la serie es bastante vieja y de ciencia ficción hay que ver si es buena."
-  // La primera vara (20 años, nota 8 y 1800 votos) la armé para que quedaran
-  // Firefly y Battlestar Galactica, y son justo las dos que después dijo que no:
-  // "son series viejas que hoy no sé si me van a gustar por los efectos". Merlín
-  // (2008) le pasa "un poco lo mismo", y con 20 años ni entraba en la regla.
-  // Con 15 años y 8.5 casi ninguna de esa época llega: es casi un no, a propósito.
-  // 0 años la apaga.
-  aniosSciFiVieja: 15,
-  notaMinimaSciFiVieja: 8.5,
-  votosMinimosSciFiVieja: 2500,
-  // "Con tantos capítulos es muy difícil que me den ganas de verla. A menos que
-  // duren 20 o 30 minutos y esté muuuy buena toda la serie." Arriba de esto no
-  // alcanza con el descuento de maxEpisodios: tiene que ser corta Y muy buena.
-  // 0 capítulos la apaga.
-  episodiosSoloMuyBuenas: 100,
+  penalizacionEpisodios: 0,
+  bonusCapituloCorto: 0,
+  episodiosSoloMuyBuenas: 0,
   minutosCapituloLargas: 30,
   notaMinimaLargas: 8.5,
   votosMinimosLargas: 2500,
-  // "Es medio musical y mucho no me gustan esas cosas, pero habría que ver."
-  // Descuento, no vara: habría que ver.
-  penalizarMusical: 1,
-  penalizarMotivos: 1.5,
-  confianzaMinima: 0.3,
-  evitarKeywords: ["time loop", "nonlinear timeline", "amnesia", "memory loss"],
+
+  // --- Animación. El motor no sabe solo que tus dieces de dibujitos son de la
+  // infancia: si te pasa, se prende acá. ---
+  penalizarInfantil: 0,
+  penalizarAnimacionOccidental: 0,
+  penalizarFamilia: 0,
+
+  // --- Idiomas que solo mirás si están muy buenas. Vacío = ninguno. ---
+  idiomasSoloMuyBuenas: [],
+  notaMinimaIdioma: 8.0,
+  votosMinimosIdioma: 2500,
+
+  // --- Ciencia ficción vieja, por los efectos. 0 años = apagada. ---
+  aniosSciFiVieja: 0,
+  notaMinimaSciFiVieja: 8.5,
+  votosMinimosSciFiVieja: 2500,
+
+  // --- Gustos sueltos. Todos en cero: son manías, no reglas. ---
+  penalizarMusical: 0,
+  penalizarSoloHablada: 0,
+  evitarKeywords: [],
   penalizacionEvitar: 1.5,
+
+  // --- Esto sí sale de tus datos: los motivos con los que etiquetaste tus propias
+  // puntuaciones ("lenta", "predecible"). Sin etiquetas no hace nada. ---
+  penalizarMotivos: 1.5,
+
   viendoAhora: [],
   yaVistas: [],
 };

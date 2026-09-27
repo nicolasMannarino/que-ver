@@ -43,12 +43,19 @@ export async function precargar(items) {
     if (!it?.kind || !it?.tmdbId) continue;
     const qs = new URLSearchParams({ language: "es-MX", append_to_response: "keywords,credits" });
     const k = `/${it.kind}/${it.tmdbId}?` + qs.toString();
-    if (!readCache(k, 7 * 24 * 3600e3)) claves.push(k);
+    const enDisco = readCache(k, 7 * 24 * 3600e3);
+    if (!enDisco || fichaVieja(`/${it.kind}/${it.tmdbId}`, enDisco)) claves.push(k);
   }
   if (!claves.length) return 0;
   const encontradas = await persistente.leerVarias(claves);
-  for (const [k, v] of encontradas) writeCache(k, v);
-  return encontradas.size;
+  // Lo que en la base quedó con el recorte viejo no se copia al disco: si no, el
+  // disco se llena de fichas caducas que tmdb() va a descartar igual.
+  let puestas = 0;
+  for (const [k, v] of encontradas) {
+    if (fichaVieja(k.split("?")[0], v)) continue;
+    writeCache(k, v); puestas++;
+  }
+  return puestas;
 }
 const vaAlPersistente = (endpoint) => !!persistente && PERSISTIBLE.test(endpoint);
 export function stats() { return { requests }; }
@@ -91,11 +98,23 @@ function writeCache(key, value) {
 // agregarlo ACA y borrar el cache: lo que no esta, no vuelve.
 const CON_FICHA = /^\/(movie|tv)\/\d+$/;
 
+// Versión del recorte. Si cambia la lista de campos de arriba, esto sube y todo
+// lo que quedó cacheado con una versión vieja se ignora: se vuelve a pedir solo,
+// de a una, a medida que se usa. La alternativa —borrar el cache a mano— en el
+// hosting significa tres mil requests de golpe y la app inutilizable un rato, y
+// encima hay que acordarse de hacerlo en los dos backends.
+export const VERSION_FICHA = 2;
+export const fichaVieja = (endpoint, v) => CON_FICHA.test(endpoint) && !!v && v._v !== VERSION_FICHA;
+
 export function recortar(j) {
   if (!j || typeof j !== "object") return j;
   const cr = j.credits || {};
   return {
+    _v: VERSION_FICHA,
     id: j.id, title: j.title, name: j.name, overview: j.overview,
+    // La frase del póster. No es el resumen: el resumen cuenta la trama, esto
+    // está escrito para que te den ganas de verla, que es para lo que se usa.
+    tagline: j.tagline || null,
     poster_path: j.poster_path, imdb_id: j.imdb_id,
     genres: j.genres || [], status: j.status,
     release_date: j.release_date, first_air_date: j.first_air_date,
@@ -131,13 +150,13 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
   const qs = new URLSearchParams({ language: "es-MX", ...params });
   const key = endpoint + "?" + qs.toString();
   const hit = readCache(key, ttl);
-  if (hit) return hit;
+  if (hit && !fichaVieja(endpoint, hit)) return hit;
 
   // Segundo nivel: lo que sobrevivio al ultimo reinicio. Si esta, se copia al
   // disco para que el resto de esta sesion lo tenga a mano sin volver a la base.
   if (vaAlPersistente(endpoint)) {
     const guardado = await persistente.leer(key);
-    if (guardado) { writeCache(key, guardado); return guardado; }
+    if (guardado && !fichaVieja(endpoint, guardado)) { writeCache(key, guardado); return guardado; }
   }
 
   const headers = { accept: "application/json" };

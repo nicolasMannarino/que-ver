@@ -24,13 +24,33 @@ let tabla = null;
 
 // Cargar desde un documento ya parseado. Separado para que test.mjs pruebe con una
 // tabla de mentira, sin archivo ni base.
+// La v2 guarda las K vecinas más parecidas de cada película en vez del triángulo
+// entero. El triángulo crecía con el CUADRADO: para que el archivo siguiera siendo
+// de 5 MB, la tabla tenía que quedarse en 4.396 películas, y la app leía 30 vecinas
+// por fila — el 99,3% no se abría nunca. Así crece lineal y entran 12.000.
+// La v1 se sigue leyendo: puede haber una vieja en la base.
 export function usar(doc) {
   if (!doc) { tabla = null; return; }
   const n = doc.tmdb.length;
-  const tri = new Uint8Array(Buffer.from(doc.triangulo, "base64"));
-  if (tri.length !== n * (n - 1) / 2) throw new Error(`tabla de vecinas rota: ${tri.length} similitudes para ${n} películas`);
+  let tri = null, idx = null, sims = null, k = 0;
+  if (doc.version >= 2) {
+    k = doc.k;
+    // Buffer.from puede devolver una vista sobre un buffer compartido, así que se
+    // copia exactamente este pedazo: pasar `.buffer` a secas trae el pool entero y
+    // desalinea los índices. Los enteros de 2 bytes van en little endian, que es lo
+    // que escribe numpy con "<u2" y lo que lee un Uint16Array acá.
+    const bi = Buffer.from(doc.indices, "base64");
+    idx = new Uint16Array(bi.buffer.slice(bi.byteOffset, bi.byteOffset + bi.byteLength));
+    sims = new Uint8Array(Buffer.from(doc.similitudes, "base64"));
+    if (idx.length !== n * k || sims.length !== n * k) {
+      throw new Error(`tabla de vecinas rota: ${idx.length}/${sims.length} para ${n}×${k}`);
+    }
+  } else {
+    tri = new Uint8Array(Buffer.from(doc.triangulo, "base64"));
+    if (tri.length !== n * (n - 1) / 2) throw new Error(`tabla de vecinas rota: ${tri.length} similitudes para ${n} películas`);
+  }
   tabla = {
-    n, tri, mu: doc.mu, hasta: doc.hasta || null,
+    n, tri, idx, sims, k, mu: doc.mu, hasta: doc.hasta || null,
     tmdb: Int32Array.from(doc.tmdb),
     sesgo: Float32Array.from(doc.sesgo),
     fila: new Map(doc.tmdb.map((t, i) => [t, i])),
@@ -66,18 +86,35 @@ export const enTabla = (tmdbId) => !!tabla?.fila.has(tmdbId);
 export const similitud = (a, b) =>
   tabla?.fila.has(a) && tabla.fila.has(b) ? sim(tabla.fila.get(a), tabla.fila.get(b)) : null;
 
-// Similitud entre dos filas. Es simétrica y se guarda el triángulo de arriba fila por
-// fila (i < j), igual que np.triu_indices: la fila i arranca en i·n − i(i+1)/2.
+// Similitud entre dos filas, de 0 a 1.
+//
+// v2: cada fila tiene sus K vecinas ordenadas POR ÍNDICE, así que es una búsqueda
+// binaria. Se prueban las dos filas porque la lista no es simétrica: j puede estar
+// entre las 150 de i sin que i esté entre las 150 de j (pasa cuando j es muy
+// conocida y tiene vecinas más fuertes). Vale la que aparezca.
+// v1: el triángulo de arriba fila por fila (i < j), como np.triu_indices.
+function enFila(i, j) {
+  const k = tabla.k, base = i * k;
+  let lo = 0, hi = k - 1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1, v = tabla.idx[base + m];
+    if (v === j) return tabla.sims[base + m] / 255;
+    if (v < j) lo = m + 1; else hi = m - 1;
+  }
+  return 0;
+}
+
 function sim(i, j) {
   if (i === j) return 0;
+  if (tabla.idx) return Math.max(enFila(i, j), enFila(j, i));
   if (i > j) { const t = i; i = j; j = t; }
   return tabla.tri[i * tabla.n - (i * (i + 1)) / 2 + (j - i - 1)] / 255;
 }
 
 // Tus películas que están en la tabla, con cuánto se aparta tu nota de lo esperable
-// para esa película. `pesoDe` es el mismo del motor: «no tener en cuenta» no opina y
-// «de chico» opina un tercio. Sin eso recomendaba Pixar: la gente que ama Toy Story
-// ama Up, y eso es cierto y no te sirve.
+// para esa película. `pesoDe` es el mismo del motor: lo marcado «no tener en cuenta»
+// o «de chico» no opina. Sin eso recomendaba Pixar: la gente que ama Toy Story ama
+// Up, y eso es cierto y no te sirve.
 export function perfilDe(vistas, pesoDe = () => 1) {
   if (!tabla) return null;
   const fila = [], peso = [], resto = [], titulo = [], clave = [];

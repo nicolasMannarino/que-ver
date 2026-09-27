@@ -153,6 +153,14 @@ async function perfilDe(id) {
   // tiene que hablar de lo que de verdad ordena.
   perfil.mezcla = M.prepararMezcla(vistas);
   perfil.curva = M.calibrar(vistas, Infinity, { preds: perfil.mezcla.loo });
+  // La misma curva pero para «te encantó» (8+): es lo que él quiere de una recomendación,
+  // y «74% te gustaron» (7+) lo leía como «4 de 6 me van a encantar».
+  perfil.curva8 = M.calibrar(vistas, Infinity, { preds: perfil.mezcla.loo, umbral: 8 });
+  // Y la que de verdad se ve en la tarjeta: qué nota le puso él a lo que puntúa
+  // así. Los dos porcentajes se saturan arriba —las diez primeras de una tanda
+  // decían todas lo mismo—; la nota esperada también tiene techo, pero se lee sin
+  // explicación y no promete un 10 que nadie puede prometer.
+  perfil.curvaNota = M.calibrarNota(vistas, { preds: perfil.mezcla.loo });
   r.marca("calibrar");
   const entrada = { perfil, vistas };
   perfiles.set(id, entrada);
@@ -329,6 +337,9 @@ async function enriquecer(finalistas) {
     c.titulo ||= d.title || d.name;
     c.fecha ||= d.release_date || d.first_air_date || "";
     c.poster ||= d.poster_path; c.resumen ||= d.overview;
+    // La frase del póster, si TMDB la tiene. El resumen cuenta la trama; esto
+    // está escrito para engancharte, que es lo que se le pide a la tarjeta.
+    c.frase ||= d.tagline || null;
     c.votos ||= d.vote_count || 0; c.nota ||= d.vote_average || 0;
     return c;
   })).filter(Boolean);
@@ -343,12 +354,14 @@ const paraElFront = (c, perfil) => ({
   generosIds: c.generosIds || [],
   episodios: c.episodios || null, temporadas: c.temporadas || null, status: c.status || null,
   poster: c.poster ? "https://image.tmdb.org/t/p/w342" + c.poster : null,
-  resumen: c.resumen, nota: c.nota, votos: c.votos,
+  resumen: c.resumen, frase: c.frase || null, nota: c.nota, votos: c.votos,
   imdb: c.imdb || null, avisos: c.avisos || [],
   motivo: M.motivo(c, perfil), score: +c.score.toFixed(3),
   masParecidaTuya: c.masParecidaTuya || null,
   confianza: +(c.confianza ?? 0).toFixed(3),
   probable: M.probabilidad(perfil.curva, c.confianza ?? 0),
+  encanta: M.probabilidad(perfil.curva8, c.confianza ?? 0),
+  notaEsperada: M.notaEsperada(perfil.curvaNota, c.confianza ?? 0),
 });
 
 // A las series TMDB no les pone el id de IMDb en la ficha —a las películas sí—,
@@ -361,6 +374,25 @@ async function conImdb(items) {
     if (e?.imdb_id) x.imdb = e.imdb_id;
   });
   return items;
+}
+
+// Cómo puntúa él: el techo de cualquier predicción es su propia distribución. Si
+// le pone 8 o más al 37% de lo que elige a mano, un tramo que acierta 78% ya es
+// el doble de bueno que él eligiendo — pero eso hay que decirlo, porque el número
+// solo, contra el 10, parece poco.
+function baseDe(perfil, vistas) {
+  const n = vistas.length;
+  if (!n) return null;
+  const ocho = vistas.filter(v => v.rating >= 8).length / n;
+  const arriba = perfil.curvaNota?.[perfil.curvaNota.length - 1];
+  const arriba8 = perfil.curva8?.[perfil.curva8.length - 1];
+  return {
+    puntuadas: n,
+    media: +perfil.media.toFixed(2),
+    ochoPropio: Math.round(ocho * 100),
+    techo: arriba ? +arriba.nota.toFixed(1) : null,
+    techoOcho: arriba8 ? Math.round(arriba8.prob * 100) : null,
+  };
 }
 
 // `techo`: solo sirve lo que no supera esta confianza (el relleno de la cola).
@@ -398,7 +430,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // Y lo que la gente con tu gusto puntuó alto. Va último: si otra fuente ya la
     // trajo, esa manda en el «por qué». Solo películas: la tabla es de MovieLens.
     if (tipo !== "tv") {
-      for (const c of M.candidatosVecinas(perfil, { excluir: ex, n: paginas > 1 ? 40 : 25, prefs: P, excluirGeneros })) {
+      for (const c of M.candidatosVecinas(perfil, { excluir: ex, n: paginas > 1 ? 40 : 25, prefs: P, excluirGeneros, sinViejas: soloNuevas })) {
         if (!mapa.has(c.key)) mapa.set(c.key, c);
       }
     }
@@ -438,12 +470,15 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   }
 
   // Lo que la vara va dejando afuera, por clave para no contar dos veces la misma
-  // cuando cae en dos rondas distintas. Con los puntajes guardados se puede
-  // responder la pregunta que importa: "¿en cuánto tengo que poner la vara para
-  // ver 8?" — y no solo "no hay nada".
+  // cuando cae en dos rondas distintas. Se guarda la candidata ENTERA, no solo su
+  // puntaje: sirve para responder "¿en cuánto tengo que poner la vara para ver 8?"
+  // y además es de donde sale el relleno cuando no se llega a `n` (ver abajo).
   const rechazadas = new Map();
   // Y las que pasan la vara pero superan el techo: mejores que lo ya mostrado.
   const porEncima = new Set();
+  // Cuántas tiró cada regla de Mis gustos. Es la única forma de contestar "hay
+  // cosas que me podría ofrecer y nunca lo hizo": las varas duras no dejan rastro.
+  const descartes = {};
 
   // Puntúa un lote de candidatos y devuelve los que valen la pena mostrar
   const evaluar = async (cands) => {
@@ -460,7 +495,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // Las series larguísimas se juzgan por cuánto dura el capítulo, y TMDB
     // seguido no lo dice en la ficha
     await M.completarDuracion(conDetalle, prefsEfectivas);
-    let utiles = M.filtrar(conDetalle, perfil, prefsEfectivas);
+    let utiles = M.filtrar(conDetalle, perfil, prefsEfectivas, descartes);
     // Y fuera las que son la 2 o la 3 de una saga que él no empezó.
     const huerfanas = await M.secuelasHuerfanas(utiles, perfil);
     if (huerfanas.size) utiles = utiles.filter(c => !huerfanas.has(c.key));
@@ -483,7 +518,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // de 0.3 — relleno con el que la lista se veía llena y no servía.
     for (const c of lista) {
       const cf = c.confianza ?? 0;
-      if (cf < piso) rechazadas.set(c.key, cf);
+      if (cf < piso) rechazadas.set(c.key, c);
       else if (cf > techo) porEncima.add(c.key);
     }
     return lista.filter(c => (c.confianza ?? 0) >= piso && (c.confianza ?? 0) <= techo);
@@ -530,6 +565,11 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   }
   const profundidad = arranque + cavados;
   rr.marca("catalogo");
+  // Red de seguridad, para no devolver media pantalla cuando la vara aprieta.
+  // Las de ARRIBA del techo no entran: ésas son de la tanda siguiente, no relleno.
+  const rescatadas = M.completarCupo([...juntadas.values()], [...rechazadas.values()], n);
+  for (const c of rescatadas) juntadas.set(c.key, c);
+  if (rescatadas.length) rr.marca("relleno(" + rescatadas.length + ")");
   const conFe = [...juntadas.values()];
   const ordenada = porConfianza
     ? conFe.sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0))
@@ -553,7 +593,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     }
   });
   rr.fin(`(${juntadas.size} candidatos)`);
-  const fuera = [...rechazadas.values()].sort((a, b) => b - a);
+  const fuera = [...rechazadas.values()].map(c => c.confianza ?? 0).sort((a, b) => b - a);
   // La vara a la que aparecerían 8. Si no hay ni 8 abajo, la de la última que hay.
   const paraVer = (k) => (fuera.length ? +Math.max(0, fuera[Math.min(k, fuera.length) - 1]).toFixed(2) : null);
   diagnosticos.set(id, {
@@ -563,6 +603,11 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     varaParaOcho: paraVer(8),
     cuantasParaOcho: Math.min(8, fuera.length),
     mejoresQueLoMostrado: porEncima.size,
+    descartes,
+    // Su línea de base. Sin esto, un "7.2" en la esquina del póster se lee como
+    // una nota mediocre — y es su promedio. La comparación que importa no es
+    // contra 10, es contra lo que él mismo le pone a lo que ELIGE ver a mano.
+    lineaDeBase: baseDe(perfil, vistas),
   });
   return salida;
 }
@@ -571,6 +616,52 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
 // lista ordenada. Antes cada tanda era una consulta nueva sobre un pozo distinto,
 // así que la segunda podía traer algo mejor que la primera: eso no es estar
 // ordenado. Ahora se arma una cola larga una vez y se sirve por pedazos.
+// Lo que todavía no se mostró tiene que quedar ordenado ENTRE SÍ, siempre.
+// Antes cada fuente nueva —la búsqueda por filtro, el relleno de fondo— se
+// pegaba al final con concat: quedaba atrás de cosas peores, y la tanda
+// siguiente salía con un 70% abajo de dos 31%. Lo ya servido no se toca: eso
+// está en pantalla y ahí se queda.
+function sumarACola(cola, nuevas) {
+  if (!nuevas.length) return;
+  const servidas = cola.lista.filter(x => cola.servidas.has(x.key));
+  const pendientes = cola.lista.filter(x => !cola.servidas.has(x.key)).concat(nuevas);
+  cola.lista = servidas.concat(ordenarConVariedad(pendientes));
+}
+
+// Ordenar por confianza a secas daba tandas de doce anime seguidos: su perfil
+// está concentrado ahí, así que las doce mejores son del mismo rincón. El motor
+// no se equivocaba —cada una es buena— pero una lista donde las doce son la
+// misma cosa no sirve para elegir qué ver hoy.
+//
+// `diversificar()` ya existía y se aplicaba adentro de recomendar()... y después
+// la cola reordenaba por confianza y la deshacía entera.
+//
+// La solución no puede ser diversificar toda la lista, porque entonces la #9
+// tendría más puntaje que la #5 y volvería el problema de «una con más
+// porcentaje que varias de las que ya me habías recomendado».
+//
+// Así que se diversifica DENTRO de cada tramo de la curva. El tramo es lo que se
+// ve en la tarjeta: todas las de un tramo muestran la misma posible nota, porque
+// ahí arriba el motor de verdad no las distingue. Barajarlas entre sí no rompe
+// ningún orden que el que mira pueda percibir —el número sigue bajando tarjeta a
+// tarjeta— y saca a las doce del mismo rincón.
+function ordenarConVariedad(lista) {
+  const porTramo = new Map();
+  for (const c of lista) {
+    const k = c.notaEsperada ?? c.confianza ?? 0;
+    if (!porTramo.has(k)) porTramo.set(k, []);
+    porTramo.get(k).push(c);
+  }
+  const salida = [];
+  for (const k of [...porTramo.keys()].sort((a, b) => b - a)) {
+    const tramo = porTramo.get(k).sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
+    // n = el tramo entero: acá diversificar() no saca a nadie, solo reordena —lo
+    // que no entra por el cupo se va al final de SU tramo, no de la lista.
+    salida.push(...M.diversificar(tramo, tramo.length, 3, 2));
+  }
+  return salida;
+}
+
 async function recomendarEnOrden(id, opciones) {
   const { n = 8, nueva = false, generos = null, excluir = null, ...base } = opciones;
   const firma = JSON.stringify(base);
@@ -627,8 +718,13 @@ async function recomendarEnOrden(id, opciones) {
     // relleno encontraba 35 con más confianza que lo último mostrado y ninguna
     // por debajo. Como ahora nada puede entrar por arriba de lo que ya está en
     // pantalla, las buenas tienen que estar desde el principio.
-    const lista = (await recomendar(id, { ...base, n: 24, minCatalogo: 1 }))
-      .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
+    // minCatalogo 2 y no 1: con una sola pasada el pozo se armaba con lo primero
+    // que aparecía y el relleno de fondo encontraba después cosas mejores que lo
+    // que ya estaba en pantalla — que ahora no tienen dónde entrar, porque nada
+    // puede subir arriba de lo mostrado. Si van a quedar afuera hasta la próxima
+    // búsqueda, más vale encontrarlas ANTES de armar la cola. El presupuesto de
+    // tiempo de recomendar() sigue siendo el tope.
+    const lista = ordenarConVariedad(await recomendar(id, { ...base, n: 30, minCatalogo: 2 }));
     cola = { firma, lista, servidas: new Set(), vista: null };
     colas.set(id, cola);
   }
@@ -666,12 +762,16 @@ async function recomendarEnOrden(id, opciones) {
     // tandas de páginas del catálogo esquivando las 60 que ya están en la cola, y
     // eso medía 17 segundos. Con 24 alcanza para llenar la pantalla, y si pedís
     // más se vuelve a llamar.
-    const mas = await recomendar(id, { ...base, generos, excluir, n: 24 });
+    // Con techo, igual que el relleno sin filtro: lo que se sale a buscar no puede
+    // entrar arriba de lo que ya está en pantalla. Sin esto, «mostrame otras» con
+    // Comedia tildado traía una comedia mejor que la primera tarjeta de la tanda
+    // anterior — que es exactamente lo que no tiene que pasar. Si el filtro es
+    // nuevo no hay techo: ahí la lista empieza de cero y nada está mostrado.
+    const tope = tanda.length ? (tanda[tanda.length - 1].confianza ?? 0) : (cola.ultimoServido ?? Infinity);
+    const mas = await recomendar(id, { ...base, generos, excluir, n: 24, techo: tope });
     const conocidas = new Set(cola.lista.map(x => x.key));
-    cola.lista = cola.lista.concat(
-      mas.filter(x => !conocidas.has(x.key))
-         .map(x => ({ ...x, traidaPorFiltro: true }))
-         .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0)));
+    sumarACola(cola, mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope)
+                        .map(x => ({ ...x, traidaPorFiltro: true })));
     tanda = disponibles().slice(0, n);
   }
 
@@ -688,9 +788,7 @@ async function recomendarEnOrden(id, opciones) {
     const tope = tanda.length ? tanda[tanda.length - 1].confianza : (cola.ultimoServido ?? Infinity);
     const mas = await recomendar(id, { ...base, n: 24, techo: tope });
     const conocidas = new Set(cola.lista.map(x => x.key));
-    cola.lista = cola.lista.concat(
-      mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope)
-         .sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0)));
+    sumarACola(cola, mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope));
     tanda = disponibles().slice(0, n);
   }
 
@@ -717,30 +815,18 @@ async function recomendarEnOrden(id, opciones) {
     const vigente = () => generaciones.get(id) === gen;
     // 2,5 segundos y no 6: si por debajo del tope no hay nada, cavar más no lo
     // cambia, y el que cliquea rápido está esperando esto.
-    const porOrden = (a, b) => (b.confianza ?? 0) - (a.confianza ?? 0);
     const promesa = recomendar(id, { ...base, n: 2 * n, techo: tope, vigente, presupuesto: 2500 })
       .then(async (mas) => {
         if (!vigente() || colas.get(id) !== cola) return;   // puntuó o buscó otra cosa
         const conocidas = new Set(cola.lista.map(x => x.key));
-        let nuevas = mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope).sort(porOrden);
-        // Nada por debajo de lo ya mostrado, pero sí por encima: la lista no se
-        // corta ahí. Arranca una sección nueva, que la pantalla separa con un
-        // cartel: lo de arriba no se mueve, y dentro de cada sección el orden
-        // siempre baja. Sin esto, «otras» se quedaba vacío a las 25 tarjetas con
-        // 15 mejores esperando, y la única salida era volver a empezar y ver las
-        // mismas 25 de nuevo.
-        // Se arma en el mismo viaje si lo de abajo no llega a una tanda entera:
-        // si no, salía una tanda de UNA tarjeta y recién el clic siguiente
-        // arrancaba la sección, con otra espera en el medio.
-        if (nuevas.length + quedan.length < n && diagnosticos.get(id)?.mejoresQueLoMostrado > 0) {
-          const ya = new Set([...conocidas, ...nuevas.map(x => x.key)]);
-          const otra = await recomendar(id, { ...base, n: 3 * n, vigente, presupuesto: 2500 });
-          if (!vigente() || colas.get(id) !== cola) return;
-          nuevas = nuevas.concat(otra.filter(x => !ya.has(x.key)).sort(porOrden)
-            .map((x, i) => (i === 0 ? { ...x, inicioSeccion: true } : x)));
-        }
+        // Nada por encima de lo ya mostrado, y punto. Antes, cuando abajo no
+        // quedaba nada, se abría una "sección nueva" que empezaba a contar de
+        // cero más arriba: la lista pasaba a tener dos órdenes y en pantalla se
+        // veía un 70% atrás de dos 31%. Si lo bueno está más hondo, sale
+        // primero en la próxima búsqueda, y el cartel de abajo lo dice.
+        const nuevas = mas.filter(x => !conocidas.has(x.key) && (x.confianza ?? 0) <= tope);
         cola.yaRellenada = true;
-        cola.lista = cola.lista.concat(nuevas);
+        sumarACola(cola, nuevas);
         conImdb(cola.lista.filter(x => !cola.servidas.has(x.key))).catch(() => {});
       })
       .catch((e) => console.error("[relleno]", e.message))
@@ -1244,49 +1330,134 @@ async function manejar(req, res, url, cuenta) {
       return json(res, 200, { ok: true, gustos: guardado, marcadas });
     }
 
+    // ---- ¿le achunta? probar el motor con lo que YA puntuó ----
+    // Lo mismo que mide backtest.mjs, pero mirable desde la app: cada título suyo
+    // calculado SIN su propia nota, ordenado por lo que el motor le habría dado. Si
+    // arriba están sus 9 y sus 10, anda; si aparece un 5 en el puesto 3, no.
+    // Hace falta porque un recomendador nunca te muestra lo que ya viste, y entonces
+    // no hay forma de saber si le pega. Probando taste.io, lo que lo convenció fue
+    // justo eso: *"me recomendó cosas que ya vi y que me gustaron"*.
+    if (url.pathname === "/api/validacion") {
+      const id = usuarioDe(url, cuenta);
+      const p = await perfilDe(id);
+      if (!p) return json(res, 200, { lista: [], base: null, total: 0 });
+      const prefs = prefsDe(id);
+      // El mismo filtro y el mismo orden que usa prepararMezcla() para armar `loo`:
+      // si acá entrara alguna de más, las notas quedarían corridas contra los puntajes.
+      const cuentan = p.vistas.filter(v => !M.noCuenta(v));
+      const loo = p.perfil.mezcla?.loo || [];
+      const lista = cuentan.map((v, i) => {
+        const cand = { ...v, fecha: v.d?.release_date || v.d?.first_air_date || "", detalle: v };
+        const pref = M.preferencias(cand, prefs, p.perfil.perfilesMotivo);
+        const conf = (loo[i] ?? 0) + 0.5 * pref.ajuste;
+        return {
+          key: v.key, kind: v.kind, tmdbId: v.tmdbId,
+          titulo: v.titulo || v.d?.title || v.d?.name, anio: v.anio,
+          real: v.rating, confianza: +conf.toFixed(3),
+          probable: M.probabilidad(p.perfil.curva, conf),
+          encanta: M.probabilidad(p.perfil.curva8, conf),
+        };
+      }).sort((a, b) => b.confianza - a.confianza);
+      // Su línea de base: cuánto de lo que ve le gusta en general. Sin esto, "16 de 20"
+      // no dice nada — hay que compararlo contra lo que sacaría eligiendo él.
+      const base = cuentan.length ? cuentan.filter(v => v.rating >= 8).length / cuentan.length : 0;
+      return json(res, 200, { lista, base: +base.toFixed(3), total: cuentan.length });
+    }
+
     // ---- cola para puntuar rápido lo que ya vio ----
-    // Propone títulos populares que encajan con su perfil y que todavía no puntuó.
-    // "No la vi" solo la saca de esta cola, no de las recomendaciones: que no la
-    // haya visto es justamente motivo para recomendársela.
+    // Le propone títulos que todavía no puntuó, elegidos por CUÁNTO INFORMAN: los que
+    // el perfil no sabe de qué lado caen. "No la vi" solo la saca de esta cola, no de
+    // las recomendaciones: que no la haya visto es justamente motivo para recomendársela.
     if (url.pathname === "/api/para-puntuar") {
       const id = usuarioDe(url, cuenta);
       const p = await perfilDe(id);
-      if (!p) return json(res, 200, { lista: [] });
       const e = estadoDe(id);
-      const excl = new Set(p.vistas.map(v => v.key));
-      for (const k of (e.saltadas || [])) excl.add(k);
+      const excl = new Set([...(p?.vistas || []).map(v => v.key), ...(e.saltadas || [])]);
 
       const tipo = url.searchParams.get("tipo");
       const kind = tipo === "movie" || tipo === "tv" ? tipo : null;
       const pagina = Math.max(0, parseInt(url.searchParams.get("pagina"), 10) || 0);
 
-      // Sigue avanzando páginas hasta juntar 24 que no haya visto. Con 242
-      // puntuadas y 25 salteadas, las primeras páginas ya están agotadas: si
-      // dependía de que el front acertara la página, devolvía vacío.
-      const crudos = [];
-      const puestos = new Set();
-      for (let salto = 0; salto < 8 && crudos.length < 24; salto++) {
-        const lote = await M.candidatosAmplios(p.perfil, {
-          excluir: excl, anioMinimo: null, tipo: kind,
-          desde: 1 + (pagina + salto) * 4, paginas: 4,
-        });
-        for (const c of lote) {
-          if ((c.votos || 0) < 800 || puestos.has(c.key)) continue;
-          puestos.add(c.key);
-          crudos.push(c);
-        }
+      // El catálogo por popularidad y NADA MÁS: sin filtrar por su perfil. Antes esto
+      // salía de candidatosAmplios, que barre los seis géneros que más le pesan, así
+      // que le preguntaba por lo que el motor ya sabía que le gusta. El resultado
+      // fueron 180 "no la vi" y ninguna respuesta que le enseñara algo nuevo.
+      const VENTANA = 6;
+      const pedidos = [];
+      for (let s = 0; s < VENTANA; s++) {
+        const pag = 1 + pagina * VENTANA + s;
+        if (kind !== "tv") pedidos.push({ kind: "movie", pag });
+        if (kind !== "movie") pedidos.push({ kind: "tv", pag });
       }
-      // Las más vistas primero: si vio algo, es más probable que sea de estas
-      const lista = crudos
-        .sort((a, b) => (b.votos || 0) - (a.votos || 0))
-        .slice(0, 24)
-        .map(c => ({
-          key: c.key, kind: c.kind, tmdbId: c.tmdbId, titulo: c.titulo,
-          anio: parseInt((c.fecha || "").slice(0, 4), 10) || null,
-          poster: c.poster ? "https://image.tmdb.org/t/p/w185" + c.poster : null,
-          nota: c.nota, votos: c.votos,
-        }));
-      return json(res, 200, { lista, saltadas: (e.saltadas || []).length, puntuadas: p.vistas.length });
+      const listas = await T.pool(pedidos, 8, (x) =>
+        T.descubrir(x.kind, { sort_by: "vote_count.desc", page: String(x.pag) }));
+
+      const crudos = [], puestos = new Set();
+      listas.forEach((l, i) => {
+        const k = pedidos[i].kind;
+        for (const c of (l?.results || [])) {
+          const key = k + ":" + c.id;
+          // El piso de votos acá significa "que sea probable que la haya visto". Una
+          // serie conocida tiene muchos menos votos que una película igual de vista,
+          // así que va por la equivalencia del motor y no por un número plano.
+          if ((c.vote_count || 0) < M.pisoVotos(800, k) || puestos.has(key) || excl.has(key)) continue;
+          puestos.add(key);
+          const fecha = c.release_date || c.first_air_date || "";
+          crudos.push({
+            key, kind: k, tmdbId: c.id, titulo: c.title || c.name,
+            anio: parseInt(fecha.slice(0, 4), 10) || null,
+            poster: c.poster_path ? "https://image.tmdb.org/t/p/w185" + c.poster_path : null,
+            nota: c.vote_average || 0, votos: c.vote_count || 0,
+            generosIds: c.genre_ids || [], idioma: c.original_language || null,
+          });
+        }
+      });
+
+      // Por cuál preguntar: por la que sea más probable que HAYA VISTO. Una respuesta
+      // que no llega no enseña nada, y sobre lo que no vio no hay nota que dar.
+      //
+      // Probé lo contrario —preguntar por lo que el motor no entiende, que es el
+      // muestreo activo de manual— y en la cancha fue mucho peor: de 24 tarjetas pudo
+      // puntuar 2. La razón es obvia mirándola de atrás: lo que el motor no entiende es
+      // justamente lo que él no mira. Le salían El resplandor, Dunkerque y ¡Huye!, que
+      // no vio ninguna; con afinidad salen Dragon Ball, One Punch Man, La Oficina y
+      // Malcolm, que son de su mundo.
+      //
+      // Sí, cada respuesta enseña menos que una del borde. Una respuesta que no llega
+      // enseña cero. No se puede medir cuál es mejor offline: la clase "la vio" son sus
+      // puntuadas, y ésas en pantalla se filtran siempre, así que cualquier número que
+      // salga de ahí habla de títulos que nunca se muestran.
+      if (p) {
+        for (const c of crudos) c.afin = M.opinionLiviana(p.perfil, c);
+        crudos.sort((a, b) => b.afin - a.afin);
+      } else {
+        // Cuenta nueva: no hay gusto todavía, y lo que más pinta visto es lo más visto.
+        crudos.sort((a, b) => b.votos - a.votos);
+      }
+
+      // Que no sean 24 del mismo género ni 24 series: una pantalla entera de terror no
+      // mide más que dos preguntas de terror. El tope por tipo hace falta porque de las
+      // películas más vistas ya puntuó casi todas y de las series no —43 contra 243—,
+      // así que después de sacar lo que ya respondió el pool queda lleno de series y la
+      // primera pantalla salía 20 a 4.
+      const topeTipo = kind ? 24 : 12;
+      const porGenero = new Map(), porTipo = new Map();
+      const elegidas = [], sobrantes = [];
+      for (const c of crudos) {
+        if (elegidas.length >= 24) break;
+        const g = c.generosIds[0] ?? -1;
+        if ((porGenero.get(g) || 0) >= 4 || (porTipo.get(c.kind) || 0) >= topeTipo) { sobrantes.push(c); continue; }
+        porGenero.set(g, (porGenero.get(g) || 0) + 1);
+        porTipo.set(c.kind, (porTipo.get(c.kind) || 0) + 1);
+        elegidas.push(c);
+      }
+      for (const c of sobrantes) { if (elegidas.length >= 24) break; elegidas.push(c); }
+
+      const lista = elegidas.map(c => ({
+        key: c.key, kind: c.kind, tmdbId: c.tmdbId, titulo: c.titulo,
+        anio: c.anio, poster: c.poster, nota: c.nota, votos: c.votos,
+      }));
+      return json(res, 200, { lista, saltadas: (e.saltadas || []).length, puntuadas: p?.vistas.length || 0 });
     }
 
     if (url.pathname === "/api/saltar" && req.method === "POST") {

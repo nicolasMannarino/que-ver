@@ -114,8 +114,45 @@ ok(!v2.includes("parte 2"), "no busca '(parte 2)' como si fuera un título");
 ok(variantesBusqueda("Harry Potter 3").includes("Harry Potter"), "cae al nombre sin el numeral");
 
 console.log("\n--- 9. Preferencias declaradas ---");
-// Las preferencias por defecto, no las de un usuario: el test no depende de datos
-const prefs = PREFS_POR_DEFECTO;
+console.log("");
+console.log("--- 8b. La curva no puede comerse el tope ---");
+// Agrupaba DESPUÉS de la isotónica —bloques de a uno y después fusionar los
+// flacos— y esa fusión se tragaba la punta: medido sobre sus 259 puntuaciones, el
+// bloque de arriba arrancaba en 0.55 con 54 títulos adentro, así que la primera
+// pantalla entera mostraba el mismo número. Y era falso: arriba de 0.92 sus notas
+// dan 8.2 y 78% de 8+, contra 7.5 y 57% abajo.
+{
+  // 120 títulos: los 30 de arriba son sus dieces, el resto un seis.
+  const n = 120;
+  const falsas = Array.from({ length: n }, (_, i) => ({ rating: i >= 90 ? 10 : 6 }));
+  const preds = Array.from({ length: n }, (_, i) => -1 + (2 * i) / (n - 1));
+  const curva = M.calibrarNota(falsas, { preds, minBloque: 30 });
+  const arriba = curva[curva.length - 1];
+  console.log("  curva:", curva.map(b => b.corte.toFixed(2) + "->" + b.nota.toFixed(1) + "(n" + b.n + ")").join(" "));
+  ok(curva.length >= 2, "la curva distingue tramos en vez de devolver uno solo");
+  ok(arriba.n <= 40, `el bloque de arriba no se come media muestra (n=${arriba.n})`);
+  ok(arriba.nota > curva[0].nota + 2, "y el tramo de arriba vale mucho más que el de abajo");
+  ok(M.notaEsperada(curva, 0.9) > M.notaEsperada(curva, -0.9), "leerla de vuelta respeta el orden");
+  const c8 = M.calibrar(falsas, Infinity, { preds, umbral: 8, minBloque: 30 });
+  ok(M.probabilidad(c8, 0.9) > 0.6 && M.probabilidad(c8, -0.9) < 0.25,
+     "la de 8+ también separa el tope del fondo");
+}
+
+// Las reglas prendidas, escritas acá y no leídas del default. El default pasó a
+// ser neutro —nadie hereda las manías de otro—, así que un test que lo usara para
+// probar que la regla funciona estaría probando que la regla está apagada. Los
+// valores son los que traía antes: alguien que contestó que sí a todo en Mis gustos.
+const PREFS_CON_TODO = {
+  ...PREFS_POR_DEFECTO,
+  notaMinimaViejas: 8.0, penalizacionPreAnio: 0.9, penalizarEfectosViejos: 1.2,
+  seriesTerminadas: true, penalizacionSerieAbierta: 0.8, penalizacionEpisodios: 0.8,
+  bonusCapituloCorto: 0.25, episodiosSoloMuyBuenas: 100,
+  penalizarInfantil: 2.2, penalizarAnimacionOccidental: 1.6, penalizarFamilia: 1.4,
+  idiomasSoloMuyBuenas: ["ko", "zh", "cn", "ja"], aniosSciFiVieja: 15,
+  penalizarMusical: 1,
+  evitarKeywords: ["time loop", "nonlinear timeline", "amnesia", "memory loss"],
+};
+const prefs = PREFS_CON_TODO;
 const P = (extra) => M.preferencias(extra, prefs);
 
 const vieja = P({ kind: "movie", nota: 7.0, detalle: { anio: 1995, kwNames: [] } });
@@ -125,6 +162,21 @@ ok(vieja.ajuste < 0, "peli anterior a 2000 pierde puntos");
 const viejaBuena = P({ kind: "movie", nota: 8.6, detalle: { anio: 1972, kwNames: [] } });
 console.log("  peli del 72, nota 8.6 ->", viejaBuena.ajuste.toFixed(2), JSON.stringify(viejaBuena.notas));
 ok(viejaBuena.ajuste > vieja.ajuste, "si es de las muy buenas, la penalización de época casi no pega");
+
+// El indulto de las viejas ahora pide EVIDENCIA, no la nota de TMDB. Harakiri
+// (1962, TMDB 8.5) salía segunda de la lista con 286 puntuaciones de las que solo
+// dos son anteriores a 1980. Con años cerca, el indulto sigue valiendo.
+const conEpoca = Array.from({ length: 8 }, (_, i) => 1958 + i);      // ocho de los 60
+const sinEpoca = Array.from({ length: 40 }, (_, i) => 2000 + (i % 20));
+const viejaConocida = M.preferencias({ kind: "movie", nota: 8.6, detalle: { anio: 1962, kwNames: [] } }, prefs, null, conEpoca);
+const viejaDesconocida = M.preferencias({ kind: "movie", nota: 8.6, detalle: { anio: 1962, kwNames: [] } }, prefs, null, sinEpoca);
+console.log("  del 62 con época conocida ->", viejaConocida.ajuste.toFixed(2),
+            "| sin época ->", viejaDesconocida.ajuste.toFixed(2));
+ok(viejaDesconocida.ajuste < viejaConocida.ajuste,
+   "una del 62 muy bien puntuada paga la época entera si de esos años no puntuaste nada");
+ok(viejaDesconocida.notas.some(n => n.includes("casi no puntuaste")),
+   "y la tarjeta lo dice, en vez de bajarla en silencio");
+ok(!viejaConocida.notas.length, "con puntuadas de esa época, el indulto sigue valiendo");
 
 const loop = P({ kind: "movie", nota: 8.0, detalle: { anio: 2014, kwNames: ["time loop", "sci-fi"] } });
 console.log("  con keyword 'time loop' ->", loop.ajuste.toFixed(2), JSON.stringify(loop.notas));
@@ -189,14 +241,15 @@ ok(M.generosPara("movie", [28, 10759]).join() === "28,10759", "a las películas 
 
 console.log("\n--- 12. Calibrar rápido da lo mismo que rearmar el perfil ---");
 // calibrar() armaba un perfil entero por título; ahora resta la parte de cada
-// uno. Tiene que dar lo mismo, con nostalgia, rasgos repetidos y títulos sin nota.
+// uno. Tiene que dar lo mismo, con rasgos repetidos y títulos sin nota. Lo
+// etiquetado no llega hasta acá: prepararMezcla() ya lo filtró.
 let azar = 7;
 const dado = () => (azar = (azar * 16807) % 2147483647) / 2147483647;
 const muchas = Array.from({ length: 40 }, (_, i) => ({
   key: "m:" + i, kind: i % 5 ? "movie" : "tv",
   rating: 1 + Math.floor(dado() * 10),
   nota: i % 7 ? +(5 + dado() * 4).toFixed(1) : 0,
-  motivos: i % 9 === 0 ? ["de chico"] : [],
+  motivos: [],
   features: [
     ...new Set(Array.from({ length: 6 + Math.floor(dado() * 8) }, () => "kw:" + Math.floor(dado() * 30))),
     "gen:" + [18, 28, 35, 16][i % 4], "gen:" + [18, 28, 35, 16][(i * 3) % 4],
@@ -207,6 +260,12 @@ const rapido = M.afinidadesSinCadaUna(muchas);
 const largo = muchas.map((v, i) => M.afinidad(M.perfil(muchas.filter((_, j) => j !== i)), v.features, v.nota));
 const peor = Math.max(...rapido.map((x, i) => Math.abs(x - largo[i])));
 ok(peor < 1e-9, `mismo leave-one-out que rearmar el perfil (diferencia máxima ${peor.toExponential(1)})`);
+// «De chico» sale del perfil entero, igual que «no tener en cuenta»: no pesa sus
+// rasgos y tampoco entra como vecino, que era por donde se colaba con nota entera.
+const conChico = muchas.map((v, i) => (i % 9 === 0 ? { ...v, motivos: ["de chico"] } : v));
+const pChico = M.perfil(conChico), sinChico = muchas.length - Math.ceil(muchas.length / 9);
+ok(pChico.total === sinChico, "«de chico» no cuenta en el perfil");
+ok(pChico.vecinos.length === sinChico, "«de chico» tampoco opina como vecino");
 
 console.log("\n--- 13. Series que \"solo si están muy buenas\" ---");
 // Los números son los reales de TMDB para cada una.
@@ -227,7 +286,7 @@ const candSeries = [
   serieDe("Roma", 2005, "en", [10759, 18], 1567, 8.2),
   { ...serieDe("Película coreana", 2019, "ko", [18], 600, 8.5), kind: "movie", key: "movie:ko" },
 ];
-const quedan = M.filtrar(candSeries, { colecciones: new Set() }, { ...PREFS_POR_DEFECTO, votosMinimos: 150 }).map(c => c.titulo);
+const quedan = M.filtrar(candSeries, { colecciones: new Set() }, { ...PREFS_CON_TODO, votosMinimos: 150 }).map(c => c.titulo);
 console.log("  pasan:", quedan.join(" · "));
 ok(!quedan.includes("Scarlet Heart"), "un K-drama con 8.5 y 600 votos no aparece: la nota sola no alcanza");
 ok(quedan.includes("Alice in Borderland"), "una japonesa de imagen real que es un éxito, sí");
@@ -250,7 +309,7 @@ const largas = [
   serieDe("Mad Men", 2007, "en", [18], 1587, 8.1, { episodios: 92, dur: 47 }),
 ];
 const conLargas = (extra = {}) => M.filtrar(largas, { colecciones: new Set() },
-  { ...PREFS_POR_DEFECTO, votosMinimos: 150, ...extra }).map(c => c.titulo);
+  { ...PREFS_CON_TODO, votosMinimos: 150, ...extra }).map(c => c.titulo);
 const quedanLargas = conLargas();
 console.log("  pasan:", quedanLargas.join(" · "));
 ok(!quedanLargas.includes("Supernatural"), "327 capítulos de 45 minutos: no, aunque tenga 8.3");
@@ -278,6 +337,42 @@ for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
   if (V.similitud(11 + i, 11 + j) !== ((a * 16 + b * 3) % 256) / 255) bienIndexada = false;
 }
 ok(bienIndexada, "el triángulo se lee igual que lo escribe numpy, en los dos órdenes");
+// Y la v2: las K vecinas más parecidas de cada fila, guardadas ordenadas por índice.
+// Mientras el par entre en las K de alguna de las dos filas, tiene que dar
+// exactamente lo mismo que el triángulo entero.
+const tablaV2De = (tmdb, valor, k) => {
+  const n = tmdb.length;
+  const sim = (i, j) => valor(Math.min(i, j), Math.max(i, j));
+  const idx = new Uint16Array(n * k).fill(65535);
+  const sims = new Uint8Array(n * k);
+  for (let i = 0; i < n; i++) {
+    const otras = [];
+    for (let j = 0; j < n; j++) if (j !== i && sim(i, j) > 0) otras.push(j);
+    otras.sort((a, b) => sim(i, b) - sim(i, a));
+    otras.slice(0, k).sort((a, b) => a - b).forEach((j, p) => {
+      idx[i * k + p] = j;
+      sims[i * k + p] = sim(i, j);
+    });
+  }
+  return { version: 2, k, hasta: "2023-10", mu: 3.5, tmdb, sesgo: tmdb.map(() => 0),
+           indices: Buffer.from(idx.buffer).toString("base64"),
+           similitudes: Buffer.from(sims).toString("base64") };
+};
+const seis = [11, 12, 13, 14, 15, 16];
+const valor6 = (i, j) => (i * 16 + j * 3) % 256;
+V.usar(tablaV2De(seis, valor6, 5));
+let igualQueV1 = true;
+for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
+  if (i === j) continue;
+  const [a, b] = i < j ? [i, j] : [j, i];
+  if (V.similitud(11 + i, 11 + j) !== valor6(a, b) / 255) igualQueV1 = false;
+}
+ok(igualQueV1, "la v2 (las K más parecidas por fila) lee igual que el triángulo entero");
+
+// Con K chico, lo que no entró en ninguna de las dos filas vale 0 y no rompe nada.
+V.usar(tablaV2De(seis, valor6, 1));
+ok(V.similitud(11, 16) >= 0 && V.similitud(11, 16) <= 1, "con K chico lo que quedó afuera vale 0");
+
 
 // Dos grupos: 1-8 se parecen entre sí, 9-16 entre sí, y entre grupos nada. Le
 // gustaron las del primero y no las del segundo.
@@ -303,9 +398,17 @@ ok(V.perfilDe(mias.slice(0, 4), M.pesoEnPerfil) === null, "con menos de 5 pelíc
 V.usar({ ...tablaDe(ids, (i, j) => ((i < 8) === (j < 8) ? 200 : 0)),
          anio: ids.map(id => id === 7 ? 1960 : 2010), animacion: ids.map(id => id === 8 ? 1 : 0) });
 const pvF = V.perfilDe(mias, M.pesoEnPerfil);
-const conReglas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } },
-  { prefs: { anioMinimo: 2000, penalizarAnimacionOccidental: 1 } }).map(c => c.tmdbId);
-ok(!conReglas.includes(7) && !conReglas.includes(8), "no propone lo que sus reglas van a bajar: ni la de 1960 ni la animada");
+const reglas = { anioMinimo: 2000, penalizarAnimacionOccidental: 1 };
+const conReglas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } }, { prefs: reglas }).map(c => c.tmdbId);
+ok(!conReglas.includes(8), "no propone la animada, que sus reglas van a bajar igual");
+// Lo viejo NO se corta acá. Para el resto de las fuentes "anterior al 2000" es un
+// castigo más una vara de calidad, no una pared, y esta fuente cortaba más fuerte que
+// todas: se perdían las mejores de imagen real que conoce la tabla sin que filtrar()
+// llegara a verlas.
+ok(conReglas.includes(7), "sí propone la de 1960: el castigo por vieja lo aplica filtrar(), no esta fuente");
+const sinViejas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } },
+  { prefs: reglas, sinViejas: true }).map(c => c.tmdbId);
+ok(!sinViejas.includes(7), "con el tilde de nada anterior al 2000, la de 1960 no se propone");
 const sinReglas = M.candidatosVecinas({ mezcla: { pv: pvF, params: {} } }).map(c => c.tmdbId);
 ok(sinReglas.includes(7) && sinReglas.includes(8), "sin esas reglas, las propone");
 
@@ -340,6 +443,20 @@ const siTienta = M.perfil(base16, { reacciones: [{ features: ["gen:878", "kw:60"
 ok(M.afinidad(siTienta, ["gen:878", "kw:60", "kw:61"]) > M.afinidad(sinReaccion, ["gen:878", "kw:60", "kw:61"]),
    "«Me la guardo» sube lo que se le parece");
 ok(M.afinidadVecinos(noTienta, viejaDrama, 20, true) === "D", "«a cuál de las tuyas se parece» nombra una que vio, no una reacción");
+
+console.log("");
+console.log("--- 17. La vara aprieta pero la pantalla no queda a medias ---");
+const cand = (k, cf) => ({ key: k, confianza: cf });
+const pasaron = [cand("a", 0.9), cand("b", 0.5)];
+const afuera = [cand("c", 0.09), cand("d", -0.2), cand("e", 0.05), cand("b", 0.5)];
+const relleno = M.completarCupo(pasaron, afuera, 4);
+ok(pasaron.length + relleno.length === 4, "completa hasta el cupo pedido");
+ok(relleno.map(c => c.key).join(",") === "c,e", "rescata las mejores primero, de mayor a menor");
+ok(!relleno.some(c => c.key === "b"), "no repite una que ya había pasado la vara");
+ok(relleno.every(c => c.avisos.includes(M.AVISO_RELLENO)), "el relleno va marcado, no se disfraza de recomendación");
+ok(!afuera.some(c => c.avisos), "marca copias: no ensucia las rechazadas, que siguen sirviendo al diagnóstico");
+ok(M.completarCupo(pasaron, afuera, 2).length === 0, "si ya alcanza el cupo, no rescata nada");
+ok(M.completarCupo([], [], 20).length === 0, "sin nada afuera, devuelve vacío en vez de romper");
 
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);
