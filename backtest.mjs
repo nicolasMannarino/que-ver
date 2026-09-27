@@ -21,7 +21,7 @@ const puntuadas = D.cargar(usuario);
 if (!puntuadas.length) { console.log("Ese perfil no tiene puntuaciones."); process.exit(1); }
 
 console.log(`\nBacktest de "${usuario}" — ${puntuadas.length} títulos\n`);
-const vistas = await M.fichas(puntuadas);
+const vistas = M.comoGusto(await M.fichas(puntuadas));
 
 // La afinidad la trae el motor, para que esto mida exactamente lo que corre
 const afinidad = (perfil, v) => M.afinidad(perfil, v.features, v.nota);

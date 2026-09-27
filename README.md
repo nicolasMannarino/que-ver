@@ -654,6 +654,23 @@ Lo guardado ya no vuelve a aparecer en Recomendar: está acá. Además, desde qu
 guardar le enseña al perfil (abajo), una guardada se parecía a sí misma y volvía con
 más confianza de la que tiene: Una mente brillante saltaba de 74% a 83%.
 
+## «La dejé» es floja
+
+Lo que él pide, dicho así: *"que no me hagan sacarla en la mitad"*. Y «la dejé» era
+solo una etiqueta: The Boys, Black Mirror y The Umbrella Academy, las tres dejadas con
+7, contaban como que le gustaron y como aciertos 7+ en la curva. El 7 era de lo que
+llegó a ver; el dato que importa es que no la terminó.
+
+Ahora una dejada pesa como **5 como mucho** (`comoGusto()` en motor.mjs) en el perfil,
+la tabla de vecinas y la curva, y en el marcador no cuenta como acierto. Su nota queda
+como la puso: la lista y «Probar con mis puntuaciones» muestran la de él.
+
+Medido con backtest.mjs sobre sus 286, casi no se mueve, y es lo esperable con 7
+títulos: la mediana de sus 9-10 contra el catálogo pasa del puesto 71 al 66, y 38
+candidatas pasan su vara en vez de 44. El AUC «sus 9-10 contra sus 1-6» baja un poco
+(0.810 → 0.798) porque ahora hay flojas que se parecen a lo que le gusta, que es justo
+el caso difícil que antes no se medía.
+
 ## Lo que te tienta enseña
 
 Él, mirando 6 recomendadas: *"quizás me gusta 1 o 2"* — La Liga de la Justicia y Una

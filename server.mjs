@@ -121,9 +121,9 @@ async function perfilDe(id) {
   // Una sola consulta para las 284 fichas, en vez de 284 sueltas.
   const dePg = await T.precargar(puntuadas);
   r.marca("precarga(" + dePg + ")");
-  const vistas = (await M.fichas(puntuadas)).map(v => ({
+  const vistas = M.comoGusto((await M.fichas(puntuadas)).map(v => ({
     ...v, motivos: puntuadas.find(p => p.key === v.key)?.motivos || [],
-  }));
+  })));
   const kwNombres = {};
   for (const v of vistas) {
     for (const k of (v.d?.keywords?.keywords || v.d?.keywords?.results || [])) {
@@ -1151,7 +1151,8 @@ async function manejar(req, res, url, cuenta) {
           e.aciertos = e.aciertos || [];
           e.aciertos.push({
             titulo: pred.titulo, prometido: pred.prob,
-            nota: guardada.rating, acerto: guardada.rating >= 7,
+            // Dejarla a la mitad no es acertar, aunque lo que vio valga un 7.
+            nota: guardada.rating, acerto: guardada.rating >= 7 && !item.dejada,
             fecha: new Date().toISOString(),
           });
         } else {
@@ -1353,7 +1354,7 @@ async function manejar(req, res, url, cuenta) {
         return {
           key: v.key, kind: v.kind, tmdbId: v.tmdbId,
           titulo: v.titulo || v.d?.title || v.d?.name, anio: v.anio,
-          real: v.rating, confianza: +conf.toFixed(3),
+          real: v.puesta ?? v.rating, confianza: +conf.toFixed(3),
           probable: M.probabilidad(p.perfil.curva, conf),
           encanta: M.probabilidad(p.perfil.curva8, conf),
         };

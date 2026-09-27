@@ -245,6 +245,15 @@ export const noCuenta = (v) =>
 // dos mitades de la nota lean sus etiquetas igual.
 export const pesoEnPerfil = (v) => (noCuenta(v) ? 0 : 1);
 
+// «La dejé» es justo lo que él quiere evitar: *"que no me haga sacarla en la mitad"*.
+// Era solo una etiqueta: The Boys, Black Mirror y Umbrella Academy, dejadas con 7,
+// contaban como que le gustaron y como aciertos 7+ en la curva. Para el gusto, una
+// dejada es floja sea cual sea la nota; la que él puso queda en `puesta`.
+export const TOPE_DEJADA = 5;
+export const dejada = (v) => (v.motivos || []).includes("la dejé");
+export const comoGusto = (vistas) =>
+  vistas.map(v => (dejada(v) ? { ...v, puesta: v.rating, rating: Math.min(v.rating, TOPE_DEJADA) } : v));
+
 // Lo que le tentó y lo que no desde la tarjeta: «Me la guardo» y «No me interesa».
 // Cada toque pesa como una nota medio desvío arriba o abajo de su promedio.
 const PESO_REACCION = 0.5;

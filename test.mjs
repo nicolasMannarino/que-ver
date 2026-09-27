@@ -458,5 +458,16 @@ ok(!afuera.some(c => c.avisos), "marca copias: no ensucia las rechazadas, que si
 ok(M.completarCupo(pasaron, afuera, 2).length === 0, "si ya alcanza el cupo, no rescata nada");
 ok(M.completarCupo([], [], 20).length === 0, "sin nada afuera, devuelve vacío en vez de romper");
 
+console.log("");
+console.log("--- 18. «La dejé» cuenta como floja ---");
+const [dej, dejBaja, entera] = M.comoGusto([
+  { key: "a", rating: 7, motivos: ["la dejé"] },
+  { key: "b", rating: 2, motivos: ["la dejé"] },
+  { key: "c", rating: 9, motivos: [] },
+]);
+ok(dej.rating === M.TOPE_DEJADA && dej.puesta === 7, "dejada con 7: pesa como floja y la nota puesta no se pierde");
+ok(dejBaja.rating === 2, "dejada con 2: no la sube al tope");
+ok(entera.rating === 9 && entera.puesta === undefined, "la que terminó no se toca");
+
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);
