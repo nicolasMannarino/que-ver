@@ -266,6 +266,9 @@
   .card .detalle .acciones { margin-top: auto; position: sticky; bottom: 0; }
   .card .detalle .acciones button { flex: 1 1 46%; font-size: 11px; padding: 8px 3px; }
   .card .detalle .puntuar { padding: 9px 10px; }
+  .card .detalle.puntuando .frase, .card .detalle.puntuando .resumen,
+  .card .detalle.puntuando .verMas, .card .detalle.puntuando .motivo,
+  .card .detalle.puntuando .avisos { display: none; }
   .card .detalle .puntuar .tit { font-size: 11px; }
   .card .meta { min-width: 0; }
   .card h3 { margin: 0 0 5px; font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; font-weight: 600; }
@@ -1520,12 +1523,20 @@ function tarjeta(p, { guardada = false, puesto = null } = {}) {
   };
   pintar();
   // El mismo botón cierra la caja; el otro la cambia de modo sin cerrarla
+  // Mientras puntúa, la descripción se esconde: la caja se abría debajo del resumen
+  // y había que bajar hasta el fondo de la ficha para encontrar la pregunta.
   const abrir = (m) => {
     const abierta = !cajaPuntuar.classList.contains("oculto");
-    if (abierta && modo === m) { cajaPuntuar.classList.add("oculto"); return; }
+    if (abierta && modo === m) {
+      cajaPuntuar.classList.add("oculto");
+      detalle.classList.remove("puntuando");
+      return;
+    }
     modo = m;
     pintar();
     cajaPuntuar.classList.remove("oculto");
+    detalle.classList.add("puntuando");
+    detalle.scrollTop = 0;
   };
 
   const acc = document.createElement("div");
