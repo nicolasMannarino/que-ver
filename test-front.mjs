@@ -134,11 +134,15 @@ try {
   // distingue— se baraja por género para no dar doce anime seguidos. Entre
   // tramos, nunca sube.
   await api.buscar(true);
-  const cards = [...porId.get("resultados").children];
-  const enGrilla = cards.map(el => +el.dataset.nota || 0);
+  // Solo tarjetas (no los cortes), y respaldadas y apuestas por separado: las
+  // apuestas van todas después, y ahí el número vuelve a empezar.
+  const cards = [...porId.get("resultados").children].filter(el => el.dataset.conf !== undefined);
+  const enGrilla = [...cards.filter(el => el.dataset.apuesta !== "1"), ...cards.filter(el => el.dataset.apuesta === "1")]
+    .map(el => +el.dataset.nota || 0);
+  const corteEn = enGrilla.length - cards.filter(el => el.dataset.apuesta === "1").length;
   const confs = cards.map(el => +el.dataset.conf || 0);
   ok(confs.length > 8, `al apilar una segunda tanda hay más tarjetas (${confs.length})`);
-  ok(enGrilla.every((v, i) => i === 0 || enGrilla[i - 1] >= v - 1e-9),
+  ok(enGrilla.every((v, i) => i === 0 || i === corteEn || enGrilla[i - 1] >= v - 1e-9),
      "la posible nota nunca vuelve a subir al apilar");
   // Lo importante no es solo el DOM: la segunda tanda no puede traer un tramo
   // mejor que el de la primera, o el orden es una ilusión.
@@ -314,7 +318,8 @@ try {
     }
     return todas;
   };
-  const siempreBaja = (l) => l.every((p, i) => i === 0 || (l[i - 1].notaEsperada ?? 0) >= (p.notaEsperada ?? 0) - 1e-9);
+  const baja = (l) => l.every((p, i) => i === 0 || (l[i - 1].notaEsperada ?? 0) >= (p.notaEsperada ?? 0) - 1e-9);
+  const siempreBaja = (l) => baja(l.filter(p => !p.apuesta)) && baja(l.filter(p => p.apuesta));
 
   // Con un genero pedido la cola se queda corta y sale a buscar de ese genero:
   // esas traidas nuevas se pegaban al final tal cual, y quedaban ABAJO de cosas

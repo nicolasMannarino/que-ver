@@ -627,6 +627,10 @@ async function recomendar(id, { preset, tipo: tipoPedido = null, texto, n = 8, g
 // siguiente salía con un 70% abajo de dos 31%. Lo ya servido no se toca: eso
 // está en pantalla y ahí se queda.
 function sumarACola(cola, nuevas) {
+  // Las respaldadas van todas antes que las apuestas (ver ordenarConVariedad). Si
+  // ya se mostró alguna apuesta, una respaldada nueva quedaría debajo: espera a la
+  // próxima búsqueda, donde sale en su lugar.
+  if (cola.lista.some(x => x.apuesta && cola.servidas.has(x.key))) nuevas = nuevas.filter(x => x.apuesta);
   if (!nuevas.length) return;
   const servidas = cola.lista.filter(x => cola.servidas.has(x.key));
   const pendientes = cola.lista.filter(x => !cola.servidas.has(x.key)).concat(nuevas);
@@ -650,7 +654,16 @@ function sumarACola(cola, nuevas) {
 // ahí arriba el motor de verdad no las distingue. Barajarlas entre sí no rompe
 // ningún orden que el que mira pueda percibir —el número sigue bajando tarjeta a
 // tarjeta— y saca a las doce del mismo rincón.
+// Las apuestas, todas después de todo lo respaldado, no al final de su tramo. Al
+// final del tramo quedaban arriba igual: el tramo de arriba eran 13, diez de ellas
+// anime genérico al que el motor le da la nota más alta por género (Bleach, High
+// School DxD), y lo que sí tiene algo suyo atrás —Harry Brown, Mar adentro— recién
+// en el puesto 14. Él pidió "de mejor a peor", y sin respaldo no hay con qué decir
+// que una apuesta es mejor que una respaldada de un tramo más abajo.
 function ordenarConVariedad(lista) {
+  return [...porTramos(lista.filter(c => !c.apuesta)), ...porTramos(lista.filter(c => c.apuesta))];
+}
+function porTramos(lista) {
   const porTramo = new Map();
   for (const c of lista) {
     const k = c.notaEsperada ?? c.confianza ?? 0;
@@ -661,12 +674,8 @@ function ordenarConVariedad(lista) {
   for (const k of [...porTramo.keys()].sort((a, b) => b - a)) {
     const tramo = porTramo.get(k).sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
     // n = el tramo entero: acá diversificar() no saca a nadie, solo reordena —lo
-    // que no entra por el cupo se va al final de SU tramo, no de la lista. Las
-    // apuestas, al final del tramo: muestran el mismo número, pero no tienen nada
-    // suyo atrás.
-    for (const parte of [tramo.filter(c => !c.apuesta), tramo.filter(c => c.apuesta)]) {
-      salida.push(...M.diversificar(parte, parte.length, 3, 2));
-    }
+    // que no entra por el cupo se va al final de SU tramo, no de la lista.
+    salida.push(...M.diversificar(tramo, tramo.length, 3, 2));
   }
   return salida;
 }
@@ -733,7 +742,9 @@ async function recomendarEnOrden(id, opciones) {
     // puede subir arriba de lo mostrado. Si van a quedar afuera hasta la próxima
     // búsqueda, más vale encontrarlas ANTES de armar la cola. El presupuesto de
     // tiempo de recomendar() sigue siendo el tope.
-    const lista = ordenarConVariedad(await recomendar(id, { ...base, n: 30, minCatalogo: 2 }));
+    // 120 y no 30: él quiere MUCHAS, y las respaldadas tienen que estar desde el
+    // principio —el relleno ya no puede meterlas una vez que empezaron las apuestas—.
+    const lista = ordenarConVariedad(await recomendar(id, { ...base, n: 120, minCatalogo: 2 }));
     cola = { firma, lista, servidas: new Set(), vista: null };
     colas.set(id, cola);
   }
