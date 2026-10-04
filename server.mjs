@@ -1,5 +1,5 @@
 // Qué Ver — servidor local. Sin dependencias.
-//   node server.mjs   ->   http://localhost:5173  (y la IP de tu red, para el celu)
+//   node server.mjs   ->   http://localhost:5199  (y la IP de tu red, para el celu)
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,7 +18,7 @@ try { process.loadEnvFile(); } catch { /* no hay .env: se usa el entorno real */
 const DIR = import.meta.dirname;
 const DATA = D.DATA;
 const F_CONFIG = "config.json";                 // clave del almacén, no una ruta
-const PUERTO = process.env.PORT || 5173;
+const PUERTO = process.env.PORT || 5199;
 const SEMILLA = ["ratings.csv", "puntuaciones.txt", "ratings.txt", "puntuaciones.csv"];
 
 fs.mkdirSync(path.join(DATA, "cache"), { recursive: true });
@@ -356,7 +356,7 @@ const paraElFront = (c, perfil) => ({
   poster: c.poster ? "https://image.tmdb.org/t/p/w342" + c.poster : null,
   resumen: c.resumen, frase: c.frase || null, nota: c.nota, votos: c.votos,
   imdb: c.imdb || null, avisos: c.avisos || [],
-  motivo: M.motivo(c, perfil), score: +c.score.toFixed(3),
+  motivo: M.motivo(c, perfil), score: +c.score.toFixed(3), apuesta: !!c.apuesta,
   masParecidaTuya: c.masParecidaTuya || null,
   confianza: +(c.confianza ?? 0).toFixed(3),
   probable: M.probabilidad(perfil.curva, c.confianza ?? 0),
@@ -399,7 +399,7 @@ function baseDe(perfil, vistas) {
 // `vigente`: si deja de serlo, se corta la excavación y no se anota nada.
 // `minCatalogo`: pasadas por el catálogo aunque ya haya n (la cola nueva).
 // `presupuesto`: milisegundos para cavar el catálogo.
-async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null, maxMin = null, techo = Infinity, vigente = () => true, minCatalogo = 0, presupuesto = 6000 }) {
+async function recomendar(id, { preset, tipo: tipoPedido = null, texto, n = 8, generos = null, sinAnimacion = false, soloNuevas = false, porConfianza = true, semilla = null, excluir = null, maxMin = null, techo = Infinity, vigente = () => true, minCatalogo = 0, presupuesto = 6000 }) {
   const p = await perfilDe(id);
   if (!p) throw new Error("Todavía no cargaste tus puntuaciones.");
   const { perfil, vistas } = p;
@@ -415,7 +415,8 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
   const excluirGeneros = [...(sinAnimacion ? [16] : []), ...(excluir || [])];
   // El tipo tiene que viajar hasta las fuentes: si se filtraba recién al final,
   // los 120 candidatos que enriquecía eran casi todos películas y quedaban 3 series.
-  const tipo = PRESETS[preset]?.soloTv ? "tv" : PRESETS[preset]?.soloPeli ? "movie" : null;
+  // Y ahora se puede pedir aparte del ánimo: "serie de tensión".
+  const tipo = tipoPedido || (PRESETS[preset]?.soloTv ? "tv" : PRESETS[preset]?.soloPeli ? "movie" : null);
   const P = prefsDe(id);
 
   const traer = async (ex, paginas) => {
@@ -430,7 +431,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // Y lo que la gente con tu gusto puntuó alto. Va último: si otra fuente ya la
     // trajo, esa manda en el «por qué». Solo películas: la tabla es de MovieLens.
     if (tipo !== "tv") {
-      for (const c of M.candidatosVecinas(perfil, { excluir: ex, n: paginas > 1 ? 40 : 25, prefs: P, excluirGeneros, sinViejas: soloNuevas })) {
+      for (const c of M.candidatosVecinas(perfil, { excluir: ex, n: paginas > 1 ? 400 : 250, prefs: P, excluirGeneros, sinViejas: soloNuevas })) {
         if (!mapa.has(c.key)) mapa.set(c.key, c);
       }
     }
@@ -490,7 +491,10 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     const dePerfil = cands.filter(c => c.origen && c.origen !== "vecinas").slice(0, 60);
     // Las de la tabla de vecinas llegan sin votos ni nota —los pone la ficha—, así
     // que en la pasada barata quedarían al fondo y no entrarían nunca: cupo propio.
-    const deVecinas = cands.filter(c => c.origen === "vecinas").slice(0, 40);
+    // 400 y no 40: es la fuente que mejor separa lo que le gusta (README, «Gente que
+    // puntúa como vos»), y con 40 la búsqueda de películas terminaba en 19. Cuesta
+    // pedir las fichas la primera vez; después están en el cache.
+    const deVecinas = cands.filter(c => c.origen === "vecinas").slice(0, 400);
     const conDetalle = await enriquecer([...deSemilla, ...dePerfil, ...deVecinas]);
     // Las series larguísimas se juzgan por cuánto dura el capítulo, y TMDB
     // seguido no lo dice en la ficha
@@ -499,6 +503,7 @@ async function recomendar(id, { preset, texto, n = 8, generos = null, sinAnimaci
     // Y fuera las que son la 2 o la 3 de una saga que él no empezó.
     const huerfanas = await M.secuelasHuerfanas(utiles, perfil);
     if (huerfanas.size) utiles = utiles.filter(c => !huerfanas.has(c.key));
+    if (tipo) utiles = utiles.filter(c => c.kind === tipo);
     const lista = M.puntuar(
       aplicarAnimo(utiles, preset, texto, generosPedidos, excluirGeneros, maxMin),
       perfil, { prefs: prefsEfectivas });
@@ -656,8 +661,12 @@ function ordenarConVariedad(lista) {
   for (const k of [...porTramo.keys()].sort((a, b) => b - a)) {
     const tramo = porTramo.get(k).sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0));
     // n = el tramo entero: acá diversificar() no saca a nadie, solo reordena —lo
-    // que no entra por el cupo se va al final de SU tramo, no de la lista.
-    salida.push(...M.diversificar(tramo, tramo.length, 3, 2));
+    // que no entra por el cupo se va al final de SU tramo, no de la lista. Las
+    // apuestas, al final del tramo: muestran el mismo número, pero no tienen nada
+    // suyo atrás.
+    for (const parte of [tramo.filter(c => !c.apuesta), tramo.filter(c => c.apuesta)]) {
+      salida.push(...M.diversificar(parte, parte.length, 3, 2));
+    }
   }
   return salida;
 }
@@ -1100,6 +1109,7 @@ async function manejar(req, res, url, cuenta) {
       const cron = reloj("BUSQUEDA");
       const lista = await recomendarEnOrden(usuarioDe(url, cuenta), {
         preset: url.searchParams.get("preset") || null,
+        tipo: ["movie", "tv"].includes(url.searchParams.get("tipo")) ? url.searchParams.get("tipo") : null,
         texto: url.searchParams.get("texto") || "",
         n: parseInt(url.searchParams.get("n"), 10) || 8,
         generos: (url.searchParams.get("generos") || "").split(",").map(Number).filter(Boolean),

@@ -3,7 +3,7 @@ chcp 65001 >nul
 title Qué Ver
 cd /d "%~dp0"
 
-if "%PORT%"=="" set "PORT=5173"
+if "%PORT%"=="" set "PORT=5199"
 set "SINCRONIZADO=no"
 
 echo.

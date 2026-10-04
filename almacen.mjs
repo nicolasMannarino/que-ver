@@ -341,11 +341,19 @@ export function leer(clave, def) {
 export function escribir(clave, valor) {
   if (modo === "postgres") {
     memoria.set(clave, valor);
-    encolar(
-      "INSERT INTO archivos (clave, valor, actualizado) VALUES ($1, $2, now()) " +
-      "ON CONFLICT (clave) DO UPDATE SET valor = $2, actualizado = now()",
-      [clave, JSON.stringify(valor)],
-    );
+    // Con la fecha que le puso la base anotada como ya aplicada: si no, el próximo
+    // refrescar() veía la escritura propia como un cambio de afuera, volvía a bajar
+    // el archivo entero y el server tiraba perfil y cola. Con el estado de él (79 KB
+    // y Neon a 170 ms) eran un par de segundos extra en cada clic.
+    encolarTarea(async () => {
+      const { rows } = await pool.query(
+        "INSERT INTO archivos (clave, valor, actualizado) VALUES ($1, $2, now()) " +
+        "ON CONFLICT (clave) DO UPDATE SET valor = $2, actualizado = now() " +
+        "RETURNING actualizado::text AS sello",
+        [clave, JSON.stringify(valor)],
+      );
+      if (rows[0]) aplicado.set(clave, rows[0].sello);
+    });
     // Si la clave estaba enterrada y vuelve, la lápida sale: si no, la otra
     // instancia la borraría de nuevo apenas refresque.
     encolar("DELETE FROM borrados WHERE clave = $1", [clave]);

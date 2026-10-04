@@ -296,6 +296,16 @@ export function perfil(todas, { reacciones = [] } = {}) {
   // Y tampoco un género: con 5 animadas entre los dieces, el vecindario Disney
   // es tan denso en TMDB que se comía la lista entera.
   const colecciones = new Set(vistas.map(v => v.coleccion).filter(Boolean));
+  // Por saga: la mejor nota que le puso, la de TMDB de esa, y qué partes ya vio
+  // (también las que no cuentan para el gusto: verlas, las vio).
+  const sagas = new Map();
+  for (const v of todas) {
+    if (!v.coleccion) continue;
+    if (!sagas.has(v.coleccion)) sagas.set(v.coleccion, { mejor: 0, nota: 0, vistas: new Set() });
+    const s = sagas.get(v.coleccion);
+    s.vistas.add(v.tmdbId);
+    if (!noCuenta(v) && v.rating > s.mejor) { s.mejor = v.rating; s.nota = v.nota || 0; }
+  }
   const usoColeccion = new Map(), usoGenero = new Map();
   const gustadas = [];
   const candidatasSemilla = vistas
@@ -376,7 +386,7 @@ export function perfil(todas, { reacciones = [] } = {}) {
   // a alguien que puntuó treinta películas de los 50 que a alguien que puntuó dos.
   const anios = vistas.map(v => v.anio || v.d?.anio).filter(Boolean).sort((a, b) => a - b);
 
-  return { media, desvio, score, gustadas, colecciones, vecinos, perfilesMotivo, notaMedia, anios,
+  return { media, desvio, score, gustadas, colecciones, sagas, vecinos, perfilesMotivo, notaMedia, anios,
            motivosUsados: [...porMotivo.entries()].map(([m, xs]) => [m, xs.length]),
            votosMedios, durMedia, total: vistas.length, reacciones: reacciones.length };
 }
@@ -406,14 +416,14 @@ export function afinidadVecinos(p, features, k = 20, devolverMasParecida = false
 
 // Ofrecerle la 2 de una saga que no empezó es ofrecerle algo que no puede ver:
 // él lo dijo viendo Animales Fantásticos 2 y 3 en la lista, sin la 1 por ningún
-// lado. Devuelve el set de ids que NO son la primera de su colección, para las
-// colecciones de las que él no puntuó nada. Va aparte de filtrar() porque necesita
+// lado. Devuelve el set de ids que NO son la que le toca: la primera de una saga que
+// no empezó, o la primera que le falta de una que sí. Va aparte de filtrar() porque necesita
 // pedirle a TMDB las colecciones, y filtrar() es sincrónico.
 export async function secuelasHuerfanas(cands, p) {
   const cols = new Map();          // coleccion -> [candidatos con esa coleccion]
   for (const c of cands) {
     const col = c.detalle?.coleccion;
-    if (!col || p.colecciones.has(col)) continue;   // si ya vio algo de la saga, filtrar() ya la sacó
+    if (!col) continue;
     if (!cols.has(col)) cols.set(col, []);
     cols.get(col).push(c);
   }
@@ -423,9 +433,11 @@ export async function secuelasHuerfanas(cands, p) {
     const partes = (d?.parts || [])
       .filter(x => x.release_date)
       .sort((a, b) => a.release_date.localeCompare(b.release_date));
-    const primera = partes[0]?.id;
-    if (!primera) return;
-    for (const c of cols.get(col)) if (c.tmdbId !== primera) fuera.add(c.key);
+    // De una saga que vio, la primera que le falta; de una que no, la primera.
+    const vistas = p.sagas?.get(col)?.vistas || new Set();
+    const siguiente = partes.find(x => !vistas.has(x.id))?.id;
+    if (!siguiente) return;
+    for (const c of cols.get(col)) if (c.tmdbId !== siguiente) fuera.add(c.key);
   });
   return fuera;
 }
@@ -453,6 +465,16 @@ export async function completarDuracion(cands, prefs) {
 // Saca lo que no tiene sentido ofrecerle, aunque puntúe alto
 // Abajo de esto es un corto, no una película.
 const MINUTOS_DE_PELICULA = 40;
+// La saga tiene que haberle gustado (8+). Si la secuela vale la pena lo deciden sus
+// notas, como con cualquier otra: hubo una vara de TMDB (no más de medio punto abajo
+// de la que le gustó) y dejaba afuera Iron Man 2 con 6.9, que para él "no es mal
+// puntaje". Y TMDB casi no predice sus notas: de lo que TMDB pone entre 6.9 y 7.4,
+// 15 de 50 se llevaron 8+ de él.
+const SAGA_GUSTO = 8;
+// 2.500 y no 1.000: con 1.000 la tabla subía al tope documentales y cine de nicho
+// (Diarios de motocicleta, Senna, Buscando a Sugar Man), que pocos vieron y esos pocos
+// puntúan alto. Con 2.500 entran El secreto de sus ojos (2.974) y Hombres de honor.
+const VOTOS_CON_AVAL = 2500;
 
 // `descartes` es opcional: un objeto donde anotar cuántas tira cada regla. Sin
 // eso, "hay pelis que me podría ofrecer y nunca lo hizo" no se puede contestar
@@ -462,13 +484,22 @@ export function filtrar(cands, p, prefs = null, descartes = null) {
   const tirar = (regla) => { if (descartes) descartes[regla] = (descartes[regla] || 0) + 1; return false; };
   return cands.filter(c => {
     const d = c.detalle;
-    // Otra de una saga que ya tiene puntuada: o la vio, o la salteó a propósito
-    if (d?.coleccion && p.colecciones.has(d.coleccion)) return tirar("saga que ya puntuaste");
+    // Otra de una saga que ya tiene puntuada. Antes salía siempre: "o la vio, o la
+    // salteó a propósito". Pero vio Iron Man y quería que le ofreciera la 2, "si
+    // realmente es buena". Así que compite como cualquiera si la saga le gustó. Que
+    // sea la que sigue, no la 3 sin haber visto la 2, lo decide secuelasHuerfanas().
+    const saga = d?.coleccion ? p.sagas?.get(d.coleccion) : null;
+    if (saga ? saga.mejor < SAGA_GUSTO : d?.coleccion && p.colecciones.has(d.coleccion)) return tirar("saga que ya puntuaste");
     if (!c.fecha || c.fecha > hoy) return false;      // todavía no se estrenó
 
     // Piso de calidad general. Sin esto la lista arrancaba bien y se caía a pique
     // en el puesto 5: cuando quedan pocos candidatos, el relleno es cualquier cosa.
-    if ((c.votos || 0) < pisoVotos(prefs?.votosMinimos ?? 30, c.kind)) return tirar("pocos votos");
+    // Salvo que la respalde la gente que puntúa como él: esa evidencia sale de
+    // MovieLens, no de los votos de TMDB. El 10% de sus películas de 8+ tiene menos
+    // de 5.000 votos —El secreto de sus ojos, Nueve reinas, El robo del siglo—, y
+    // con el piso parejo ese cine no aparecía nunca.
+    const piso = avalada(c, p) ? Math.min(prefs?.votosMinimos ?? 30, VOTOS_CON_AVAL) : (prefs?.votosMinimos ?? 30);
+    if ((c.votos || 0) < pisoVotos(piso, c.kind)) return tirar("pocos votos");
     if (prefs?.notaMinima && (c.nota || 0) < prefs.notaMinima) return tirar("nota mínima");
 
     // Un corto no es una película. «Para Pajaritos» —3 minutos de Pixar, TMDB 7.5 y
@@ -483,6 +514,13 @@ export function filtrar(cands, p, prefs = null, descartes = null) {
     const anio = d?.anio ?? c.anio;
     if (prefs?.notaMinimaViejas && prefs?.anioMinimo && anio && anio < prefs.anioMinimo) {
       if ((c.nota || 0) < prefs.notaMinimaViejas) return tirar("viejas sin nota alta");
+    }
+    // Y de una época que mira, con o sin vara de nota. Pasaban Sherlock Jr. (1924),
+    // Los siete samuráis, Harakiri y Dr. Insólito: clásicos, sí, pero de años de los
+    // que no puntuó casi nada. La nota de TMDB dice que es un clásico, no que le
+    // vaya a gustar.
+    if (prefs?.anioMinimo && anio && anio < prefs.anioMinimo && !sabeDeLaEpoca(p.anios, anio)) {
+      return tirar("viejas de una época que no mirás");
     }
 
     // "No suelo mirar series en coreano, chino o japonés, a menos que sea anime o
@@ -1352,6 +1390,29 @@ export function prepararMezcla(todas) {
   return { pv, params, loo };
 }
 
+// Respaldo concreto: algo más que "es de los géneros que puntuás alto". Sin esto la
+// lista general eran 13 animes de 16 —Bleach, Black Clover, High School DxD—
+// generalizados de sus seis, que son los más famosos que existen.
+// - En la tabla de vecinas: que la gente que puntúa como él la ponga arriba de su
+//   media. Medido en sus 218 películas de la tabla: así, 8 de 10 con 7+; abajo, 4.5.
+//   Pedir además que el motor esté de acuerdo casi no suma (8.2) y deja afuera a un
+//   tercio: el motor da cerca de cero a casi todo lo que no vio —Iron Man 2 -0.26,
+//   Misión rescate -0.16—, y con esa vara 25 de 30 películas salían como apuesta.
+// - Fuera de ella (series, estrenos): que la traiga una suya nombrable, no el catálogo.
+// La apuesta solo se marca y va al final de su tramo: no se le baja la nota. Topearla
+// en cero la hundía abajo de la vara y la lista quedaba en cinco.
+export const AVISO_SIN_RESPALDO = "apuesta: nada puntual de lo tuyo la respalda";
+// La predicción de la tabla ya está en c.vecinas desde la pasada barata de puntuar().
+const enTabla = (vec, p) => !!(vec && vec.apoyo >= 3 && p.mezcla?.params);
+const avalada = (c, p) => enTabla(c.vecinas, p) && c.vecinas.puntaje >= p.mezcla.params.mc;
+function conRespaldo(c, p, vec) {
+  if (enTabla(vec, p)) return vec.puntaje >= p.mezcla.params.mc;
+  // Las de keyword («shounen», «anime») y las del catálogo no tienen una suya detrás:
+  // su semilla es una etiqueta. Las de TMDB sin origen sí, si se le parecen de verdad.
+  if (c.origen) return c.origen === "persona" || c.origen === "semilla";
+  return (c.semillas || []).some(s => !s.rasgos || enComun(s.rasgos, c.detalle?.features || []) >= PARECIDO_PUENTE);
+}
+
 export function puntuar(cands, p, { prefs = null } = {}) {
   const maxApoyo = Math.max(...cands.map(c => c.apoyo), 1);
   for (const c of cands) {
@@ -1395,6 +1456,8 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     // de gusto. Si no, ordenar por confianza ignoraba "nada de animación", "nada
     // viejo" y las marcas de motivo: se avisaba pero no bajaba a nadie.
     c.confianza = afin + 0.5 * pref.ajuste;
+    c.apuesta = !conRespaldo(c, p, vec);
+    if (c.apuesta) c.avisos = [...c.avisos, AVISO_SIN_RESPALDO];
     c.partes = { afin, afinMotor, vecinas: vec?.puntaje ?? null, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
     c.score = (
       1.7 * apoyo +
@@ -1438,6 +1501,13 @@ export function motivo(c, p) {
       : "La gente que puntúa parecido a vos la puntuó alto.";
   }
   if (c.origen === "semilla") return "Del palo de " + (c.semillaTitulo || top[0]) + ", que puntuaste alto.";
+  // Si la gente que puntúa como él la respalda, eso es el motivo de verdad: decir
+  // "no salió de ninguna tuya" de El Hobbit, con la tabla nombrando dos suyas, hacía
+  // que se viera como relleno.
+  const porGente = c.vecinas?.porQue || [];
+  if (porGente.length && (c.origen === "catalogo" || c.origen === "keyword" || !semillas.length)) {
+    return `A la gente que le ${porGente.length > 1 ? "gustaron" : "gustó"} ${enumerar(porGente)} como a vos, esta también le gustó.`;
+  }
   if (c.origen === "catalogo") return "No salió de ninguna tuya en particular: es de los géneros que más puntuás alto.";
   if (c.origen === "persona") return `Otra de ${top[0]}, que aparece varias veces entre tus mejores puntajes.`;
 

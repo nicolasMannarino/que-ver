@@ -91,45 +91,41 @@
   .tab.on::before { filter: none; }
 
   /* =====================================================================
-     El escritorio: barra al costado y grilla a lo ancho.
-     Antes era una sola columna de 1080: el buscador, los presets, doce
-     géneros y cuatro casillas se comían media pantalla, y para ver la
-     cuarta recomendación había que achicar el zoom del navegador. La barra
-     se queda con lo que se toca —navegar y filtrar— y le deja el alto
-     entero a los pósters. Abajo de 1000px vuelve a ser una columna, que es
-     lo que sirve en el celular.
+     El escritorio: una sola columna, con los filtros en una barra arriba de la
+     grilla. Antes vivían en una columna de 290px al costado: los géneros
+     quedaban uno abajo del otro, había que scrollear la barra para llegar al
+     botón, y el campo de texto, estirado en vertical por un flex de 260px,
+     era un cuadrado enorme. Él: "tengo que bajar mucho", "el cuadrado es
+     muuuy grande y ni siquiera sé si sirve" (no servía: ver buscar()).
      ===================================================================== */
-  /* Los filtros son de Recomendar: en las otras pestañas no pintan nada.
-     Dos ids le ganan a .oculto sin necesidad de tocar el JS que lo muestra. */
-  #lateral:not([data-vista="rec"]) #pBuscar { display: none; }
 
   @media (min-width: 1000px) {
     .wrap { max-width: 1400px; }
-    .app { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 26px; align-items: start; }
-    /* Se queda quieta mientras la grilla scrollea: cambiar un filtro no puede
-       obligar a volver arriba de todo. */
-    .lateral { position: sticky; top: 74px; max-height: calc(100vh - 92px);
-               overflow-y: auto; overscroll-behavior: contain; padding-right: 4px;
-               scrollbar-width: thin; scrollbar-color: rgba(255,184,77,.2) transparent; }
-    .lateral .tabs { flex-direction: column; gap: 2px; border-bottom: none; margin-bottom: 14px; }
-    .lateral .tab { display: flex; align-items: center; gap: 10px; text-align: left;
-                    border-bottom: none; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
-    .lateral .tab::before { font-size: 16px; }
-    .lateral .tab:hover { background: var(--panel); color: var(--txt); }
-    .lateral .tab.on { background: var(--panel2); color: var(--acento); }
-    /* El panel de búsqueda en 290px: todo en una columna, nada en fila. */
-    .lateral #pBuscar { padding: 15px; margin-bottom: 0; }
-    .lateral #pBuscar > .fila { flex-direction: column; align-items: stretch; gap: 8px; }
-    .lateral #inAnimo, .lateral #btnBuscar { width: 100%; flex: none; }
-    .lateral #btnFiltros { width: 100%; text-align: left; display: flex;
-                           align-items: center; justify-content: space-between; }
-    .lateral #cajaFiltros .fila { flex-direction: column; align-items: flex-start; gap: 10px; }
-    /* Seis pósters por fila en vez de cuatro: la tanda entera entra sin scrollear,
-       que era literalmente lo que se pedía al achicar el zoom. */
-    .grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 12px; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
     .card .tituloPie { font-size: 13px; }
     .card .datosPie { font-size: 11.5px; }
   }
+
+  /* La barra: qué tipo, qué ánimo, géneros y lo de siempre, en una fila. Pegada
+     abajo del encabezado: "hice una búsqueda y no sé qué busqué, tengo que andar
+     subiendo y bajando para ver los filtros". Vive adentro de Recomendar y no de
+     la columna: sticky queda pegado solo mientras dura su contenedor, y la
+     columna terminaba ahí nomás, así que se iba con el scroll igual. */
+  #pBuscar { padding: 12px 14px; }
+  @media (min-width: 621px) {
+    #pBuscar { position: sticky; top: 64px; z-index: 50; box-shadow: 0 10px 24px -14px rgba(0,0,0,.9); }
+  }
+  .barraBuscar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+  .segmento { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--linea);
+              border-radius: 999px; background: var(--panel2); }
+  .segmento button { border: none; border-radius: 999px; background: none; padding: 6px 14px;
+                     font-size: 13.5px; color: var(--txt2); }
+  .segmento button:hover:not(:disabled) { background: none; color: var(--txt); }
+  .segmento button.on { background: var(--acento); color: #1a1205; font-weight: 600; }
+  /* Lo que se pidió, en una línea arriba de las tarjetas: en el celular la barra no
+     queda pegada y sin esto no se sabe qué está mirando. */
+  .resumenPedido { font-size: 13px; color: var(--txt2); margin: 0 0 10px; }
+  .resumenPedido b { color: var(--txt); font-weight: 600; }
 
   /* Los filtros arrancan plegados en todos lados, no solo en el celular: desplegados
      son veinte controles y empujan la primera recomendacion abajo del pliegue. */
@@ -220,7 +216,8 @@
                      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card .datosPie { font-size: 11.5px; color: rgba(255,255,255,.62); margin-top: 3px; }
   .card .porQuePie { font-size: 11px; line-height: 1.3; margin-top: 4px; color: #f3cf9a;
-                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                     overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical;
+                     -webkit-line-clamp: 2; }
   /* Arriba a la derecha, la nota que creo que le vas a poner. Ver el comentario
      en tarjeta() para por qué no es un porcentaje. El color sale de la chance de
      que te encante: verde es el tramo de arriba, ámbar el del medio. */
@@ -234,6 +231,8 @@
                    margin-top: 2px; letter-spacing: .02em; white-space: nowrap; }
   .card .badge.alta { color: #7fd4a8; border-color: #2f6b46; }
   .card .badge.media { color: #d8c87f; border-color: #6b5f2f; }
+  /* Sin respaldo puntual (ver conRespaldo en motor.mjs): gris y punteada. */
+  .card .badge.apuesta { color: var(--txt2); border-color: var(--linea); border-style: dashed; }
   /* La ficha, encima del póster. overflow-x en hidden porque cualquier cosa más ancha
      que la tarjeta abría una barra de scroll horizontal adentro, que se veía fatal. */
   .card .detalle { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column;
@@ -666,25 +665,40 @@
     <button class="tab" data-tab="gus">Mis gustos</button>
   </div>
 
+  </aside>
+
+  <!-- ===== Recomendar ===== -->
+  <main class="principal">
+  <div id="vistaRec">
   <section class="panel oculto" id="pBuscar">
-      <div class="fila" style="margin-bottom:10px">
-        <input type="text" id="inAnimo" style="flex:1 1 260px" placeholder="ej: algo tranquilo, un policial, ciencia ficción rara… (opcional)">
-        <button class="primario" id="btnBuscar">Dame algo para ver</button>
-        <span class="sub" id="estadoBusqueda"></span>
-      </div>
-      <div class="chips" id="chips"></div>
-      <button class="chico" id="btnFiltros" type="button">
-        <span id="txtFiltros">Más filtros</span> <span id="flechaFiltros">▾</span>
-      </button>
-      <div id="cajaFiltros" class="plegado">
-        <div class="sub" style="margin:14px 0 6px">Filtrar por género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
-        <div class="chips" id="chipsGenero"></div>
-        <div class="fila" style="margin-top:8px; gap:18px">
-          <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
-          <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
-          <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
+      <div class="barraBuscar">
+        <div class="segmento" id="segTipo">
+          <button type="button" data-tipo="" class="on">Todo</button>
+          <button type="button" data-tipo="movie">Películas</button>
+          <button type="button" data-tipo="tv">Series</button>
         </div>
-        <div class="fila" style="margin-top:8px; gap:8px; align-items:center">
+        <select id="selAnimo" title="Ánimo">
+          <option value="">Cualquier ánimo</option>
+          <option value="liviana">Liviana y corta</option>
+          <option value="tension">Tensión</option>
+          <option value="accion">Acción</option>
+          <option value="autor">Cine de autor</option>
+          <option value="rara">Algo raro</option>
+        </select>
+        <button class="chico" id="btnFiltros" type="button">
+          <span id="txtFiltros">Géneros y más</span> <span id="flechaFiltros">▾</span>
+        </button>
+        <label class="interruptor"><input type="checkbox" id="sinAnimacion"> Sin animación</label>
+        <label class="interruptor"><input type="checkbox" id="soloNuevas"> Nada anterior al 2000</label>
+        <span class="espacio"></span>
+        <span class="sub" id="estadoBusqueda"></span>
+        <button class="primario" id="btnBuscar">Dame algo para ver</button>
+      </div>
+      <div id="cajaFiltros" class="plegado">
+        <div class="sub" style="margin:14px 0 6px">Género <span style="opacity:.6">(un clic: solo eso · dos clics: nunca eso)</span></div>
+        <div class="chips" id="chipsGenero"></div>
+        <div class="fila" style="margin-top:8px; gap:18px; align-items:center">
+          <label class="interruptor"><input type="checkbox" id="porConfianza" checked> Las más seguras primero</label>
           <label class="interruptor"><input type="checkbox" id="usarMaxMin"> Que no dure más de</label>
           <input type="number" id="maxMin" value="120" min="20" max="400" step="5" style="width:80px">
           <span style="opacity:.7">minutos</span>
@@ -693,11 +707,6 @@
       </div>
       <div class="error oculto" id="errBuscar"></div>
     </section>
-  </aside>
-
-  <!-- ===== Recomendar ===== -->
-  <main class="principal">
-  <div id="vistaRec">
     <div class="banda oculto" id="bandaSemilla"></div>
     <div class="banda oculto" id="bandaAcierto"></div>
     <div class="fila oculto" id="filaGuardadas" style="margin-bottom:14px">
@@ -729,13 +738,13 @@
     <!-- Antes esto era media pantalla: título, ayuda, texto libre, siete presets, doce
          géneros, tres casillas y la duración, todo desplegado. Para ver la PRIMERA
          recomendación había que scrollear. Ahora arriba queda sólo lo que se usa
-         siempre —el texto, los presets y el botón— y el resto vive atrás de «Más
-         filtros», que ya existía pero solamente en el celular. -->
+         siempre —tipo, ánimo y el botón— y el resto vive atrás de «Géneros y más». -->
 
     <!-- Cuando todo lo que se ve cae en el mismo tramo de la curva, las tarjetas
          muestran el mismo número y eso se lee como un error. No lo es: ahí arriba
          el motor de verdad no distingue una de otra, y decirlo es más útil que
          inventar decimales. -->
+    <div class="resumenPedido oculto" id="resumenPedido"></div>
     <div class="sub oculto" id="avisoTramo" style="margin-bottom:12px"></div>
     <div class="grid" id="resultados"></div>
     <div class="vacio oculto" id="vacioRec"></div>
@@ -1058,7 +1067,8 @@ const post = (url, body) => api(url, {
 });
 
 let estado = {};
-let preset = null;
+let preset = null;   // el ánimo
+let tipo = "";      // "", "movie" o "tv"
 let generosElegidos = new Set();
 let generosVetados = new Set();
 let VOCABULARIO = [];
@@ -1320,23 +1330,22 @@ function pintarGeneros() {
         ids.forEach(i => generosElegidos.add(i));
       }
       pintarGeneros();
+      alCambiarFiltro();
     };
     cont.appendChild(b);
   }
   marcarFiltrosActivos();
 }
 
+// Película / Serie y el ánimo eran siete chips sueltos y excluyentes entre sí: no se
+// podía pedir "serie de tensión". Ahora el tipo es un selector y el ánimo, aparte.
 function pintarChips() {
-  $("#chips").innerHTML = "";
-  for (const [id, txt] of PRESETS) {
-    const b = document.createElement("button");
-    b.className = "chip" + (preset === id ? " on" : "");
-    b.textContent = txt;
-    b.onclick = () => { preset = (preset === id ? null : id); pintarChips(); };
-    $("#chips").appendChild(b);
-  }
+  for (const b of $("#segTipo").children) b.classList.toggle("on", b.dataset.tipo === tipo);
+  $("#selAnimo").value = preset || "";
   marcarFiltrosActivos();
 }
+for (const b of $("#segTipo").children) b.onclick = () => { tipo = b.dataset.tipo; pintarChips(); alCambiarFiltro(); };
+$("#selAnimo").onchange = () => { preset = $("#selAnimo").value || null; alCambiarFiltro(); };
 
 function tarjeta(p, { guardada = false, puesto = null } = {}) {
   const el = document.createElement("div");
@@ -1571,8 +1580,8 @@ function tarjeta(p, { guardada = false, puesto = null } = {}) {
                           esTv ? "serie" : "película"].filter(Boolean).join(" · ");
   // El «por qué», en la cara de la tarjeta y no escondido atrás del hover. Es lo
   // único que la app sabe y el póster no dice, y es lo que hace que den ganas de
-  // verla: «porque te gustó Nueve reinas» vende más que cualquier puntaje. Una
-  // línea, cortada; la completa sigue estando en la ficha.
+  // verla: «porque te gustó Nueve reinas» vende más que cualquier puntaje. Dos
+  // líneas: en una se cortaba justo antes de nombrar la segunda película.
   const porQue = document.createElement("div");
   porQue.className = "porQuePie";
   porQue.textContent = p.motivo || "";
@@ -1595,11 +1604,11 @@ function tarjeta(p, { guardada = false, puesto = null } = {}) {
   // El puesto no se perdió: va abajo, con el año.
   const badge = document.createElement("div");
   const ne = p.notaEsperada;
-  badge.className = "badge" + (de10 === null ? "" : de10 >= 6 ? " alta" : de10 >= 4 ? " media" : "");
+  badge.className = "badge" + (p.apuesta ? " apuesta" : de10 === null ? "" : de10 >= 6 ? " alta" : de10 >= 4 ? " media" : "");
   const gusta = document.createElement("b");
   gusta.textContent = ne == null ? "?" : ne.toFixed(1);
   const cual = document.createElement("i");
-  cual.textContent = "posible nota";
+  cual.textContent = p.apuesta ? "apuesta" : "posible nota";
   badge.append(gusta, cual);
   badge.title = ne == null
     ? "Todavía no tengo con qué calibrar esto."
@@ -1658,7 +1667,25 @@ function mostrarDescartes(d) {
     + ". Se cambian en Mis gustos.";
 }
 
+// Lo que está pedido, dicho en castellano.
+function textoPedido() {
+  const nombres = (ids) => GENEROS.filter(([, g]) => g.every(i => ids.has(i))).map(([n]) => n);
+  const partes = [tipo === "movie" ? "Películas" : tipo === "tv" ? "Series" : "Películas y series"];
+  if (preset) partes.push($("#selAnimo").selectedOptions?.[0]?.textContent || preset);
+  const si = nombres(generosElegidos), no = nombres(generosVetados);
+  if (si.length) partes.push(si.join(", "));
+  if (no.length) partes.push("sin " + no.join(", "));
+  if ($("#sinAnimacion").checked) partes.push("sin animación");
+  if ($("#soloNuevas").checked) partes.push("del 2000 en adelante");
+  if ($("#usarMaxMin").checked) partes.push("hasta " + ($("#maxMin").value || 120) + " min");
+  return partes;
+}
+
+// Si se tocan los filtros rápido, solo cuenta el último pedido: una respuesta vieja
+// que llega tarde no puede pisar la lista nueva.
+let pedidoBusqueda = 0;
 async function buscar(mas) {
+  const mio = ++pedidoBusqueda;
   $("#errBuscar").classList.add("oculto");
   $("#btnBuscar").disabled = true;
   $("#estadoBusqueda").textContent = "Buscando…";
@@ -1666,7 +1693,11 @@ async function buscar(mas) {
     // 12 y no 8: con la barra al costado entran seis por fila, así que ocho dejaban
     // una fila y media y había que clickear "otras" enseguida. Doce son dos filas
     // enteras. La cola del server trae 30, o sea dos tandas y media por búsqueda.
-    const q = new URLSearchParams({ texto: $("#inAnimo").value || "", n: "12" });
+    // Sin texto: el campo libre solo sumaba al puntaje, y con «Las más seguras
+    // primero» —prendido de entrada— el orden es por confianza, así que lo que se
+    // escribía no movía nada.
+    const q = new URLSearchParams({ n: "12" });
+    if (tipo) q.set("tipo", tipo);
     if (!mas) q.set("nueva", "1");   // empezar de cero vuelve a poner todo en juego
     if (preset) q.set("preset", preset);
     if (generosElegidos.size) q.set("generos", [...generosElegidos].join(","));
@@ -1677,7 +1708,13 @@ async function buscar(mas) {
     if (!$("#porConfianza").checked) q.set("porConfianza", "0");
     if (semillaActiva) q.set("semilla", semillaActiva.key);
     const { lista, diagnostico } = await api("/api/recomendaciones?" + q);
+    if (mio !== pedidoBusqueda) return;
     if (!mas) $("#resultados").innerHTML = "";
+    const resumen = $("#resumenPedido"), pedido = document.createElement("b");
+    pedido.textContent = textoPedido().join(" · ");
+    resumen.textContent = "Mostrando: ";
+    resumen.appendChild(pedido);
+    resumen.classList.remove("oculto");
     // Lo nuevo va ABAJO de lo que ya estaba, nunca entre medio, y nunca con más
     // puntaje: el server sirve una sola cola ordenada y lo que todavía no mostró
     // lo mantiene ordenado entre sí. Acá no se reordena nada — lo que ya está en
@@ -1729,8 +1766,17 @@ async function buscar(mas) {
   $("#btnBuscar").disabled = false;
 }
 $("#btnBuscar").onclick = () => { semillaActiva = null; pintarBanda(); buscar(false); };
+// Tocar un filtro ya busca: antes había que acordarse de apretar el botón, y la
+// lista de abajo seguía siendo la de los filtros anteriores.
+let esperaFiltro = null;
+function alCambiarFiltro() {
+  clearTimeout(esperaFiltro);
+  esperaFiltro = setTimeout(() => { semillaActiva = null; pintarBanda(); buscar(false); }, 350);
+}
+for (const id of ["sinAnimacion", "soloNuevas", "porConfianza", "usarMaxMin", "maxMin"]) {
+  $("#" + id).addEventListener("change", () => { marcarFiltrosActivos(); alCambiarFiltro(); });
+}
 $("#btnMas").onclick = () => buscar(true);
-$("#inAnimo").addEventListener("keydown", e => { if (e.key === "Enter") buscar(false); });
 
 /* ---------- Guardadas ---------- */
 async function contarGuardadas() {
@@ -2286,7 +2332,7 @@ function marcarFiltrosActivos() {
   const n = generosElegidos.size + generosVetados.size
           + ($("#sinAnimacion").checked ? 1 : 0) + ($("#soloNuevas").checked ? 1 : 0)
           + ($("#usarMaxMin").checked ? 1 : 0);
-  donde.textContent = n ? "Más filtros (" + n + ")" : "Más filtros";
+  donde.textContent = n ? "Géneros y más (" + n + ")" : "Géneros y más";
 }
 
 /* ---------- Cuenta ---------- */

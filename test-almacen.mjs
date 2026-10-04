@@ -93,6 +93,9 @@ try {
   ok(A.leer("usuarios/nico/estado.json", null)?.vistas?.[0] === "tv:1",
      "el cambio propio sobrevive a un refrescar inmediato");
   ok(traido !== null, "y el refresco igual devolvió algo");
+  // Y no se la toma como un cambio de afuera: si no, el server tiraba perfil y cola
+  // después de cada búsqueda, porque cada búsqueda guarda el estado.
+  ok(!traido.has("usuarios/nico/estado.json"), "lo que escribió A no le vuelve a A como cambio ajeno");
 
   seccion("4. Borrar un perfil se propaga");
 

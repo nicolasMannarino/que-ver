@@ -8,7 +8,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import path from "node:path";
 
-const PUERTO = process.env.PORT || 5173;
+const PUERTO = process.env.PORT || 5199;
 const BASE = "http://localhost:" + PUERTO;
 let fallos = 0;
 const ok = (cond, msg) => { console.log((cond ? "  ok  " : "FALLA ") + msg); if (!cond) fallos++; };
@@ -54,7 +54,7 @@ const porId = new Map();
 const html = fs.readFileSync(path.join(import.meta.dirname, "public", "index.html"), "utf8");
 for (const m of html.matchAll(/id="([a-zA-Z0-9_-]+)"/g)) porId.set(m[1], crearElemento("div"));
 // los que el script trata como inputs
-for (const id of ["fTexto", "fTipo", "fMin", "fMax", "fOrden", "inAnimo", "inKey", "txtRatings",
+for (const id of ["fTexto", "fTipo", "fMin", "fMax", "fOrden", "selAnimo", "inKey", "txtRatings",
                   "sinAnimacion", "soloNuevas", "inBuscarTitulo", "selUsuario",
                   "gAnio", "gNotaVieja", "gNotaMin", "gVotosMin", "gTerminadas", "gEpisodios",
                   "gInfantil", "gEvitar", "gViendo", "gYaVistas", "gNotas"]) {
@@ -283,7 +283,11 @@ try {
   const notas = new Set(tanda.map(p => p.notaEsperada));
   console.log("  notas esperadas:", [...notas].map(x => x?.toFixed(1)).join(" "));
   ok(tanda.every(p => typeof p.notaEsperada === "number"), "cada tarjeta trae su nota esperada");
-  ok(notas.size > 1, `la curva distingue tramos dentro de una lista larga (${notas.size} valores)`);
+  // Salvo que casi todo sea apuesta: esas se topean en su promedio y caen juntas en
+  // un tramo, que es la verdad —la app no tiene con qué distinguirlas—.
+  const respaldadas = tanda.filter(p => !p.apuesta).length;
+  ok(notas.size > 1 || respaldadas < 8,
+     `la curva distingue tramos dentro de una lista larga (${notas.size} valores, ${respaldadas} con respaldo)`);
   const porNota = tanda.map(p => p.notaEsperada);
   ok(porNota.every((v, i) => i === 0 || porNota[i - 1] >= v - 1e-9),
      "y la nota esperada baja junto con el orden, nunca sube");

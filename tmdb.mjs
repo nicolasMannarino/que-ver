@@ -150,13 +150,13 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
   const qs = new URLSearchParams({ language: "es-MX", ...params });
   const key = endpoint + "?" + qs.toString();
   const hit = readCache(key, ttl);
-  if (hit && !fichaVieja(endpoint, hit)) return hit;
+  if (hit && !fichaVieja(endpoint, hit)) return hit.noExiste ? null : hit;
 
   // Segundo nivel: lo que sobrevivio al ultimo reinicio. Si esta, se copia al
   // disco para que el resto de esta sesion lo tenga a mano sin volver a la base.
   if (vaAlPersistente(endpoint)) {
     const guardado = await persistente.leer(key);
-    if (guardado && !fichaVieja(endpoint, guardado)) { writeCache(key, guardado); return guardado; }
+    if (guardado && !fichaVieja(endpoint, guardado)) { writeCache(key, guardado); return guardado.noExiste ? null : guardado; }
   }
 
   const headers = { accept: "application/json" };
@@ -173,7 +173,14 @@ export async function tmdb(endpoint, params = {}, { ttl = 7 * 24 * 3600e3 } = {}
   }
   if (!res.ok) {
     if (res.status === 401) throw new Error("BAD_KEY");
-    if (res.status === 404) return null;
+    // El "no existe" también se guarda. La tabla de vecinas trae ids de MovieLens que
+    // TMDB ya borró, y sin esto cada búsqueda volvía a preguntar por 20 o 30 de ellos.
+    if (res.status === 404) {
+      const nada = { _v: VERSION_FICHA, noExiste: true };
+      writeCache(key, nada);
+      if (vaAlPersistente(endpoint)) persistente.escribir(key, nada);
+      return null;
+    }
     throw new Error("TMDB_" + res.status);
   }
   const crudo = await res.json();

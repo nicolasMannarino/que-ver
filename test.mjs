@@ -469,5 +469,27 @@ ok(dej.rating === M.TOPE_DEJADA && dej.puesta === 7, "dejada con 7: pesa como fl
 ok(dejBaja.rating === 2, "dejada con 2: no la sube al tope");
 ok(entera.rating === 9 && entera.puesta === undefined, "la que terminó no se toca");
 
+console.log("\n--- 19. Sin respaldo es apuesta; lo viejo de una época que no mira, afuera ---");
+const mismaFicha = { dur: 140, features: F([53, 80], ["kw:1"]) };
+const [conSuya, porKeyword] = M.puntuar([
+  { key: "m:20", votos: 500000, nota: 8, apoyo: 1, semillas: [{ titulo: "A", aporte: 1 }], detalle: mismaFicha },
+  { key: "m:21", votos: 500000, nota: 8, apoyo: 1, origen: "keyword", semillas: [{ titulo: "thriller", aporte: 1 }], detalle: mismaFicha },
+], p).sort((a, b) => a.key.localeCompare(b.key));
+ok(porKeyword.apuesta && porKeyword.avisos.includes(M.AVISO_SIN_RESPALDO),
+   "la que trae una keyword avisa que es apuesta");
+ok(porKeyword.confianza === conSuya.confianza, "pero no se le baja la nota: solo se marca");
+ok(!conSuya.apuesta && !conSuya.avisos.includes(M.AVISO_SIN_RESPALDO), "la que trae una suya, no");
+const clasico = { key: "m:22", kind: "movie", fecha: "1962-09-16", votos: 5000, nota: 8.5, detalle: { anio: 1962 } };
+const reglaViejas = { anioMinimo: 2000, notaMinimaViejas: 8 };
+ok(!M.filtrar([clasico], { colecciones: new Set(), anios: sinEpoca }, reglaViejas).length,
+   "un clásico del 62 con 8.5 no pasa si de esos años no puntuaste nada");
+ok(M.filtrar([clasico], { colecciones: new Set(), anios: conEpoca }, reglaViejas).length === 1,
+   "con puntuadas de esa época, pasa");
+const argentina = { key: "m:23", kind: "movie", fecha: "2009-08-13", votos: 2900, nota: 7.9, detalle: { anio: 2009 } };
+const pConTabla = { colecciones: new Set(), mezcla: { params: { mc: 0 } } };
+ok(!M.filtrar([argentina], pConTabla, { votosMinimos: 5000 }).length, "con 2.900 votos y nada que la respalde, no pasa el piso de 5.000");
+ok(M.filtrar([{ ...argentina, vecinas: { apoyo: 5, puntaje: 0.4 } }], pConTabla, { votosMinimos: 5000 }).length === 1,
+   "si la respalda la gente que puntúa como vos, alcanza con 2.500");
+
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);

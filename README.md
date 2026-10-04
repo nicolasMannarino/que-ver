@@ -1480,7 +1480,7 @@ Corre igual en dos modos, y lo que decide cuál es **si existe `DATABASE_URL`**:
 | API key de TMDB | una, en `data/config.json` | **la de cada uno**, cifrada contra su cuenta |
 
 En tu compu no cambia nada: sin `DATABASE_URL` no hay login ni pantalla de entrar,
-y seguís abriendo `localhost:5173` como siempre.
+y seguís abriendo `localhost:5199` como siempre.
 
 ### Los pasos
 
@@ -1674,7 +1674,7 @@ Los dos fallan si se sacan los arreglos: está verificado, no supuesto.
 | `DATABASE_URL` | Postgres. Su sola presencia prende el modo publicado con cuentas. |
 | `SESSION_SECRET` | Firma las sesiones y cifra las API keys. 32+ caracteres. **Si cambia, se cae cada sesión y ninguna key guardada se puede volver a leer.** |
 | `TMDB_API_KEY` | Solo para correrlo local sin cargar la key desde la web. |
-| `PORT` | Por defecto 5173. Render lo pone solo. |
+| `PORT` | Por defecto 5199. Render lo pone solo. |
 | `HOST` | Dónde escucha. Por defecto `127.0.0.1` — sólo tu compu. Render necesita `0.0.0.0` y lo tiene puesto en `render.yaml`; si la variable no llegara, el server igual lo detecta por `RENDER_EXTERNAL_URL` y no se cae. |
 | `REQUERIR_LOGIN=1` | Fuerza el modo con cuentas sin base, para probarlo en tu compu. |
 | `MANTENER_DESPIERTO` | Rango horario en el que la app no se deja dormir, ej. `9-1`. |
