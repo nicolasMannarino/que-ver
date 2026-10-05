@@ -1752,7 +1752,7 @@ async function buscar(mas) {
       }
       // El puesto se cuenta sobre la grilla entera, no sobre la tanda: apilando
       // «mostrame otras» la novena tiene que decir #9, no #1 de nuevo.
-      const el = tarjeta(p, { puesto: $("#resultados .card").length + 1 });
+      const el = tarjeta(p, { puesto: document.querySelectorAll("#resultados .card").length + 1 });
       el.dataset.conf = String(p.confianza ?? 0);
       el.dataset.apuesta = p.apuesta ? "1" : "0";
       if (p.notaEsperada != null) el.dataset.nota = p.notaEsperada.toFixed(1);
