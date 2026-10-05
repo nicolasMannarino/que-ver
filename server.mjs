@@ -168,6 +168,7 @@ async function perfilDe(id) {
   // decían todas lo mismo—; la nota esperada también tiene techo, pero se lee sin
   // explicación y no promete un 10 que nadie puede prometer.
   perfil.curvaNota = M.calibrarNota(vistas, { preds: perfil.mezcla.loo });
+  perfil.notaAclamadas = M.notaDeAclamadas(vistas);
   r.marca("calibrar");
   const entrada = { perfil, vistas };
   perfiles.set(id, entrada);
@@ -528,12 +529,17 @@ async function recomendar(id, { preset, tipo: tipoPedido = null, texto, n = 8, g
     // era ">= 0" a mano, así que entraba cualquier cosa que no fuera negativa.
     // Medido sobre un pedido de 60: de 30 tarjetas que salían, 18 estaban abajo
     // de 0.3 — relleno con el que la lista se veía llena y no servía.
+    // Las series aclamadas no pasan por la vara: la vara mide la confianza del motor,
+    // y el motor no entiende de series —a The Mandalorian le daba -0.23—. Con sus
+    // reglas reales tiraba 158 series y quedaban 8 seguras. Para series la evidencia
+    // es el consenso (ver aclamada() en motor.mjs).
+    const pasaVara = (c) => (c.confianza ?? 0) >= piso || (c.kind === "tv" && M.aclamada(c));
     for (const c of lista) {
       const cf = c.confianza ?? 0;
-      if (cf < piso) rechazadas.set(c.key, c);
+      if (!pasaVara(c)) rechazadas.set(c.key, c);
       else if (cf > techo) porEncima.add(c.key);
     }
-    return lista.filter(c => (c.confianza ?? 0) >= piso && (c.confianza ?? 0) <= techo);
+    return lista.filter(c => pasaVara(c) && (c.confianza ?? 0) <= techo);
   };
 
   // Cava por niveles hasta juntar suficientes CON CONFIANZA, no suficientes

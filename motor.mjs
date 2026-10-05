@@ -1465,6 +1465,21 @@ const avalada = (c, p) => enTabla(c.vecinas, p) && c.vecinas.puntaje >= p.mezcla
 // de 10 con 7+, y casi ninguna con 8+.
 const ACLAMADA_NOTA = 8.3, ACLAMADA_VOTOS = 3000;
 export const aclamada = (c) => (c.nota || 0) >= ACLAMADA_NOTA && (c.votos || 0) >= ACLAMADA_VOTOS;
+// Lo que él les puso a las series aclamadas que ya vio. Es la nota esperable de una
+// aclamada nueva: la del motor no sirve ahí —a Severance o Rick y Morty les daba 5.9—.
+// La confianza más baja del tramo más alto que no pasa esa nota. Para abajo y no
+// para arriba: las aclamadas que vio las eligió él entre las más famosas, y una
+// nueva cualquiera le va a gustar algo menos. Para arriba, su 7.7 caía en el tramo
+// de 7.8 y la lista general arrancaba con 16 series seguidas.
+function corteDeNota(curva, nota) {
+  if (!curva?.length) return -Infinity;
+  const debajo = curva.filter(x => x.nota <= nota + 1e-9);
+  return (debajo.length ? debajo[debajo.length - 1] : curva[0]).corte;
+}
+export function notaDeAclamadas(vistas) {
+  const s = vistas.filter(v => v.kind === "tv" && !noCuenta(v) && aclamada(v));
+  return s.length >= 5 ? s.reduce((a, v) => a + v.rating, 0) / s.length : null;
+}
 function conRespaldo(c, p, vec) {
   if (c.kind === "tv") return aclamada(c);
   if (enTabla(vec, p)) return vec.puntaje >= p.mezcla.params.mc;
@@ -1520,6 +1535,13 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     // de gusto. Si no, ordenar por confianza ignoraba "nada de animación", "nada
     // viejo" y las marcas de motivo: se avisaba pero no bajaba a nadie.
     c.confianza = afin + 0.5 * pref.ajuste;
+    // Una serie aclamada vale lo que él les puso a las aclamadas que vio: sube a la
+    // confianza más baja del tramo de esa nota. La del motor no sirve en series
+    // (Severance, Rick y Morty: 5.9), y subirle solo el número la metía DELANTE de las
+    // películas de su tramo —15 series de 24 en la primera tanda—; así queda detrás.
+    if (c.kind === "tv" && aclamada(c) && p.notaAclamadas != null) {
+      c.confianza = Math.max(c.confianza, corteDeNota(p.curvaNota, p.notaAclamadas));
+    }
     c.apuesta = !conRespaldo(c, p, vec);
     if (c.apuesta) c.avisos = [...c.avisos, AVISO_SIN_RESPALDO];
     c.partes = { afin, afinMotor, vecinas: vec?.puntaje ?? null, gemelas: gem?.puntaje ?? null, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
