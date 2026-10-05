@@ -945,7 +945,7 @@ export async function candidatosAmplios(p, {
     // quedaban 11 así, entre anime de 94 votos.
     const { with_genres, ...sinGeneros } = base("tv");
     pedir("tv", {
-      ...sinGeneros, "vote_average.gte": String(ACLAMADA_NOTA), "vote_count.gte": String(ACLAMADA_VOTOS),
+      ...sinGeneros, without_genres: [sinGeneros.without_genres, ...NO_ACLAMABLES].filter(Boolean).join(","), "vote_average.gte": String(ACLAMADA_NOTA), "vote_count.gte": String(ACLAMADA_VOTOS),
       ...(anioMinimo ? { "first_air_date.gte": anioMinimo + "-01-01" } : {}),
     });
   }
@@ -1463,8 +1463,16 @@ const avalada = (c, p) => enTabla(c.vecinas, p) && c.vecinas.puntaje >= p.mezcla
 // "porque te gustó Shrek 2". Lo que mejor predice sus series es el consenso: de sus
 // 43, las de TMDB 8.3+ con 3.000+ votos son 19, y 18 con 7+ (una floja). El resto: 8
 // de 10 con 7+, y casi ninguna con 8+.
-const ACLAMADA_NOTA = 8.3, ACLAMADA_VOTOS = 3000;
-export const aclamada = (c) => (c.nota || 0) >= ACLAMADA_NOTA && (c.votos || 0) >= ACLAMADA_VOTOS;
+// Bajada a 8.0 y 1.000 a pedido suyo: con 8.3/3.000 hay 57 en todo TMDB y ya vio un
+// tercio, así que quedaban ~20. Con esta vara sus series dan 28 de 33 con 7+ (85%
+// contra 95%): más series, alguna pifia más.
+const ACLAMADA_NOTA = 8, ACLAMADA_VOTOS = 1000;
+// Infantil, noticias, reality, telenovela y talk show no cuentan: ahí la nota la ponen
+// los fans, y con la vara en 8.0 la lista arrancaba con Big Time Rush, Zoey 101 y
+// The Kardashians.
+const NO_ACLAMABLES = [10762, 10763, 10764, 10766, 10767];
+export const aclamada = (c) => (c.nota || 0) >= ACLAMADA_NOTA && (c.votos || 0) >= ACLAMADA_VOTOS
+  && !(c.generosIds || c.detalle?.generosIds || []).some(g => NO_ACLAMABLES.includes(g));
 // Lo que él les puso a las series aclamadas que ya vio. Es la nota esperable de una
 // aclamada nueva: la del motor no sirve ahí —a Severance o Rick y Morty les daba 5.9—.
 // La confianza más baja del tramo más alto que no pasa esa nota. Para abajo y no
