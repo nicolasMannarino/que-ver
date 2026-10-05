@@ -583,8 +583,12 @@ async function recomendar(id, { preset, tipo: tipoPedido = null, texto, n = 8, g
   for (const c of rescatadas) juntadas.set(c.key, c);
   if (rescatadas.length) rr.marca("relleno(" + rescatadas.length + ")");
   const conFe = [...juntadas.values()];
+  // Las respaldadas primero, también al cortar en n: si no, el corte por confianza
+  // dejaba afuera Rick y Morty, La casa del dragón o Invencible —aclamadas, o sea
+  // respaldadas— y entraba anime de 94 votos que el motor puntúa más alto. Después
+  // ordenarConVariedad() las iba a poner primeras igual, pero ya no estaban.
   const ordenada = porConfianza
-    ? conFe.sort((a, b) => (b.confianza ?? 0) - (a.confianza ?? 0))
+    ? conFe.sort((a, b) => (!!a.apuesta - !!b.apuesta) || (b.confianza ?? 0) - (a.confianza ?? 0))
     : conFe;
   // Con el orden por confianza aflojo el tope por género: si no, la diversidad
   // saltea buenas y termina raspando el fondo teniendo mejores disponibles.

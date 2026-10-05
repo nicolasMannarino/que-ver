@@ -940,6 +940,14 @@ export async function candidatosAmplios(p, {
     pedir("tv", {
       ...base("tv"), ...(anioMinimo ? { "first_air_date.gte": anioMinimo + "-01-01" } : {}),
     });
+    // Y las aclamadas de cualquier género: las series que de verdad le salen bien
+    // (ver conRespaldo) no siempre son de sus seis géneros, y de 96 candidatas
+    // quedaban 11 así, entre anime de 94 votos.
+    const { with_genres, ...sinGeneros } = base("tv");
+    pedir("tv", {
+      ...sinGeneros, "vote_average.gte": String(ACLAMADA_NOTA), "vote_count.gte": String(ACLAMADA_VOTOS),
+      ...(anioMinimo ? { "first_air_date.gte": anioMinimo + "-01-01" } : {}),
+    });
   }
   const mapa = new Map();
   const listas = await T.pool(pedidos, 8, (x) => T.descubrir(x.kind, x.params));
@@ -1450,7 +1458,15 @@ export const AVISO_SIN_RESPALDO = "apuesta: nada puntual de lo tuyo la respalda"
 // La predicción de la tabla ya está en c.vecinas desde la pasada barata de puntuar().
 const enTabla = (vec, p) => !!(vec && vec.apoyo >= 3 && p.mezcla?.params);
 const avalada = (c, p) => enTabla(c.vecinas, p) && c.vecinas.puntaje >= p.mezcla.params.mc;
+// Series: aclamada y masiva. No hay tabla de gente para series (MovieLens no tiene),
+// y "la trajo una suya" dejaba pasar Bleach "porque te gustó Hachiko" y Dragon Ball
+// "porque te gustó Shrek 2". Lo que mejor predice sus series es el consenso: de sus
+// 43, las de TMDB 8.3+ con 3.000+ votos son 19, y 18 con 7+ (una floja). El resto: 8
+// de 10 con 7+, y casi ninguna con 8+.
+const ACLAMADA_NOTA = 8.3, ACLAMADA_VOTOS = 3000;
+export const aclamada = (c) => (c.nota || 0) >= ACLAMADA_NOTA && (c.votos || 0) >= ACLAMADA_VOTOS;
 function conRespaldo(c, p, vec) {
+  if (c.kind === "tv") return aclamada(c);
   if (enTabla(vec, p)) return vec.puntaje >= p.mezcla.params.mc;
   // Las de keyword («shounen», «anime») y las del catálogo no tienen una suya detrás:
   // su semilla es una etiqueta. Las de TMDB sin origen sí, si se le parecen de verdad.
@@ -1555,6 +1571,9 @@ export function motivo(c, p) {
   const porGente = c.vecinas?.porQue || [];
   if (porGente.length && (c.origen === "catalogo" || c.origen === "keyword" || !semillas.length)) {
     return `A la gente que le ${porGente.length > 1 ? "gustaron" : "gustó"} ${enumerar(porGente)} como a vos, esta también le gustó.`;
+  }
+  if (c.kind === "tv" && aclamada(c) && (c.origen === "catalogo" || c.origen === "keyword")) {
+    return `Serie aclamada por muchísima gente (TMDB ${c.nota.toFixed(1)}, ${c.votos.toLocaleString("es-AR")} votos): en series, es lo que mejor predice tu gusto.`;
   }
   if (c.origen === "catalogo") return "No salió de ninguna tuya en particular: es de los géneros que más puntuás alto.";
   if (c.origen === "persona") return `Otra de ${top[0]}, que aparece varias veces entre tus mejores puntajes.`;
