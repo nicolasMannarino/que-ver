@@ -4,6 +4,7 @@ import { PREFS_POR_DEFECTO } from "./datos.mjs";
 import { parseImdbCSV, parseNotepad, mergeRatings, parseAgrupado, variantesBusqueda } from "./ratings.mjs";
 import * as M from "./motor.mjs";
 import * as V from "./vecinas.mjs";
+import * as G from "./gemelas.mjs";
 
 let fallos = 0;
 const ok = (cond, msg) => { console.log((cond ? "  ok  " : "FALLA ") + msg); if (!cond) fallos++; };
@@ -490,6 +491,32 @@ const pConTabla = { colecciones: new Set(), mezcla: { params: { mc: 0 } } };
 ok(!M.filtrar([argentina], pConTabla, { votosMinimos: 5000 }).length, "con 2.900 votos y nada que la respalde, no pasa el piso de 5.000");
 ok(M.filtrar([{ ...argentina, vecinas: { apoyo: 5, puntaje: 0.4 } }], pConTabla, { votosMinimos: 5000 }).length === 1,
    "si la respalda la gente que puntúa como vos, alcanza con 2.500");
+
+console.log("\n--- 20. Gemelas: la gente que puntuó tus películas como vos ---");
+{
+  // Panel de mentira: 12 películas tuyas (ids 1-12) y una candidata (99). Seis
+  // personas puntúan las tuyas como vos y aman la 99; seis al revés y la odian.
+  const ids = [...Array(12)].map((_, i) => i + 1).concat(99);
+  const tuyas = ids.slice(0, 12).map((t, i) => ({ key: "movie:" + t, kind: "movie", tmdbId: t, rating: i % 2 ? 9 : 4 }));
+  const filas = ids.map(() => []);
+  for (let u = 0; u < 12; u++) {
+    const gemela = u < 6;
+    tuyas.forEach((v, j) => filas[j].push([u, gemela ? v.rating : 13 - v.rating]));
+    filas[12].push([u, gemela ? 10 : 2]);
+  }
+  const b64 = (T, xs) => Buffer.from(new T(xs).buffer).toString("base64");
+  const inicio = [0]; for (const f of filas) inicio.push(inicio.at(-1) + f.length);
+  G.usar({ tmdb: ids, personas: 12, inicio: b64(Uint32Array, inicio),
+           quien: b64(Uint16Array, filas.flat().map(x => x[0])), nota: b64(Uint8Array, filas.flat().map(x => x[1])),
+           media: b64(Float32Array, Array(12).fill(3.25)) });
+  const pg = G.perfilDe(tuyas);
+  const pred = G.predecir(pg, 99);
+  // Las seis que la odian puntúan al revés: parecido negativo, no opinan.
+  ok(pred && pred.puntaje > 0.5 && pred.apoyo === 6, "la que aman tus gemelas sale arriba de lo esperable, y solo opinan ellas (" + pred?.puntaje.toFixed(2) + ")");
+  ok(G.predecir(pg, 1234) === null, "la que no está en el panel no tiene opinión");
+  ok(G.sinCadaUna(pg).size === 12, "y cada una tuya se predice sin ella, para calibrar");
+  G.usar(null);
+}
 
 console.log("\n" + (fallos ? `${fallos} FALLAS` : "Todo verde."));
 process.exit(fallos ? 1 : 0);

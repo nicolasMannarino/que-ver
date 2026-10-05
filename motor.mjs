@@ -4,6 +4,7 @@
 import * as T from "./tmdb.mjs";
 import { variantesBusqueda, numeroDeSecuela } from "./ratings.mjs";
 import * as V from "./vecinas.mjs";
+import * as G from "./gemelas.mjs";
 
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -869,7 +870,18 @@ export function candidatosVecinas(p, { excluir = new Set(), n = 30, prefs = null
     !(desde && anio && anio < desde) &&
     !(sinAnimacion && animacion) &&
     !(animacionNo && animacion === 1);
-  return V.mejores(p.mezcla.pv, { excluir, n, filtro }).map(x => ({
+  // Ordenadas por vecinas Y gemelas, no solo por vecinas. Con solo vecinas, las que
+  // traía eran las favoritas de la tabla (+1.4 desvíos) y las gemelas casi no
+  // coincidían (+0.07): mezcladas bajaban, y las películas que las gemelas sí aman no
+  // entraban nunca. Arriba quedaban seis series de anime, que no tienen gemelas.
+  const { params: q, gparams: g, pg } = p.mezcla;
+  const conGem = (x) => {
+    const est = g ? G.estimada(pg, x.tmdbId) : null;
+    return (x.puntaje - q.mc) / q.sc + (est == null ? 0 : (est - g.mg) / g.sg);
+  };
+  const todas = V.mejores(p.mezcla.pv, { excluir, n: Infinity, filtro });
+  const elegidas = g ? todas.map(x => [conGem(x), x]).sort((a, b) => b[0] - a[0]).slice(0, n).map(([, x]) => x) : todas.slice(0, n);
+  return elegidas.map(x => ({
     key: "movie:" + x.tmdbId, kind: "movie", tmdbId: x.tmdbId,
     titulo: null, fecha: "", poster: null, resumen: null, votos: 0, nota: 0,
     apoyo: 0.6, origen: "vecinas",
@@ -1387,7 +1399,40 @@ export function prepararMezcla(todas) {
   const z = a.map((x, j) => (1 - PESO_VECINAS) * (x - ma) / sa + PESO_VECINAS * (c[j] - mc) / sc);
   const params = { ma, sa, mc, sc, sm: dispersion(z, promedio(z)) };
   for (const i of en) loo[i] = mezclar(params, motor[i], vec.get(vistas[i].key));
-  return { pv, params, loo };
+  return { pv, params, loo, ...conGemelas(vistas, loo) };
+}
+
+// Y encima, mitad gemelas (gemelas.mjs): gente que le puso a sus películas notas
+// parecidas a las suyas. Mitad porque es lo que mejor dio en todos los cortes:
+//   peso       0      0.25   0.5    1      (de 20 arriba: 8+/7+/flojas)
+//   top 20   12/17/3 14/19/1 17/20/0 18/20/0
+//   top 40   28/35/5 28/34/6 27/34/6 30/35/5
+// Solo gemelas daba algo más, pero no ve series ni estrenos, y la mezcla tiene que
+// valer para todo. Sobre la escala de la mezcla, como la de vecinas sobre el motor.
+const PESO_GEMELAS = 0.5;
+function conGemelas(vistas, loo) {
+  const pg = G.perfilDe(vistas, pesoEnPerfil);
+  const gem = G.sinCadaUna(pg);
+  const en = vistas.map((v, i) => (gem.has(v.key) ? i : -1)).filter(i => i >= 0);
+  if (en.length < MIN_PARA_MEZCLAR) return { pg: null, gparams: null };
+  const a = en.map(i => loo[i]), g = en.map(i => gem.get(vistas[i].key));
+  const mm = promedio(a), sm = dispersion(a, mm), mg = promedio(g), sg = dispersion(g, mg);
+  const z = a.map((x, j) => (1 - PESO_GEMELAS) * (x - mm) / sm + PESO_GEMELAS * (g[j] - mg) / sg);
+  // Cuánto coinciden las dos sobre sus películas. Hace falta para lo que no tiene
+  // gemelas (series, estrenos): promediar dos opiniones que no coinciden del todo
+  // acerca todo al medio, y si a las series no les pasaba, quedaban arriba de
+  // cualquier película —seis animes en los primeros ocho—. Sin la opinión de las
+  // gemelas se usa la esperable dada la de la app: rho veces la suya.
+  const rho = a.reduce((s, x, j) => s + (x - mm) / sm * (g[j] - mg) / sg, 0) / a.length;
+  const gparams = { mm, sm, mg, sg, rho, sz: dispersion(z, promedio(z)) };
+  const enG = new Set(en);
+  for (let i = 0; i < loo.length; i++) loo[i] = mezclarGemelas(gparams, loo[i], enG.has(i) ? gem.get(vistas[i].key) : null);
+  return { pg, gparams };
+}
+export function mezclarGemelas(q, mezcla, gemelas) {
+  const zm = (mezcla - q.mm) / q.sm;
+  const zg = gemelas == null ? q.rho * zm : (gemelas - q.mg) / q.sg;
+  return q.mm + q.sm * ((1 - PESO_GEMELAS) * zm + PESO_GEMELAS * zg) / q.sz;
 }
 
 // Respaldo concreto: algo más que "es de los géneros que puntuás alto". Sin esto la
@@ -1424,8 +1469,11 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     // Y si la película está en la tabla de vecinas, un cuarto eso. Series, estrenos
     // posteriores a la tabla y lo poco conocido siguen solo con el motor.
     const vec = p.mezcla?.params && c.kind === "movie" ? V.predecir(p.mezcla.pv, c.tmdbId) : null;
-    const afin = vec ? mezclar(p.mezcla.params, afinMotor, vec.puntaje) : afinMotor;
+    const afinVec = vec ? mezclar(p.mezcla.params, afinMotor, vec.puntaje) : afinMotor;
+    const gem = p.mezcla?.gparams && c.kind === "movie" ? G.predecir(p.mezcla.pg, c.tmdbId) : null;
+    const afin = p.mezcla?.gparams ? mezclarGemelas(p.mezcla.gparams, afinVec, gem?.puntaje) : afinVec;
     c.vecinas = vec;
+    c.gemelas = gem;
     c.masParecidaTuya = afinidadVecinos(p, f, 20, true);
 
     // Acuerdo entre semillas: si salió de 4 pelis distintas que le gustaron, vale más
@@ -1458,7 +1506,7 @@ export function puntuar(cands, p, { prefs = null } = {}) {
     c.confianza = afin + 0.5 * pref.ajuste;
     c.apuesta = !conRespaldo(c, p, vec);
     if (c.apuesta) c.avisos = [...c.avisos, AVISO_SIN_RESPALDO];
-    c.partes = { afin, afinMotor, vecinas: vec?.puntaje ?? null, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
+    c.partes = { afin, afinMotor, vecinas: vec?.puntaje ?? null, gemelas: gem?.puntaje ?? null, apoyo, acuerdo, obscuridad, duracion, calidad, prefs: pref.ajuste };
     c.score = (
       1.7 * apoyo +
       1.3 * acuerdo +

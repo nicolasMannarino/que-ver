@@ -7,6 +7,7 @@ import os from "node:os";
 import * as T from "./tmdb.mjs";
 import * as M from "./motor.mjs";
 import * as V from "./vecinas.mjs";
+import * as G from "./gemelas.mjs";
 import * as D from "./datos.mjs";
 import * as A from "./almacen.mjs";
 import * as Auth from "./auth.mjs";
@@ -33,6 +34,12 @@ await A.abrir();
   console.log(i
     ? `    vecinas: ${i.peliculas.toLocaleString("es-AR")} películas de MovieLens (hasta ${i.hasta}), desde ${origen === "archivo" ? "data/" : "la base"}`
     : "    vecinas: no hay tabla — recomienda solo con el motor (ver README, «Gente que puntúa como vos»)");
+  // Y el panel de gemelas (armar-gemelas.py). Sin él, la mezcla queda como antes.
+  const deDonde = await G.cargar();
+  const g = G.info();
+  console.log(g
+    ? `    gemelas: ${g.personas.toLocaleString("es-AR")} personas de MovieLens, desde ${deDonde === "archivo" ? "data/" : "la base"}`
+    : "    gemelas: no hay panel — la mezcla va sin gemelas");
 }
 
 const CON_LOGIN = Auth.requiereLogin();
