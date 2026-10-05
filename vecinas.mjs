@@ -117,7 +117,7 @@ function sim(i, j) {
 // Up, y eso es cierto y no te sirve.
 export function perfilDe(vistas, pesoDe = () => 1) {
   if (!tabla) return null;
-  const fila = [], peso = [], resto = [], titulo = [], clave = [];
+  const fila = [], peso = [], resto = [], titulo = [], clave = [], nota = [];
   for (const v of vistas) {
     if (v.kind !== "movie") continue;
     const i = tabla.fila.get(v.tmdbId);
@@ -127,12 +127,13 @@ export function perfilDe(vistas, pesoDe = () => 1) {
     fila.push(i); peso.push(w); clave.push(v.key);
     // Tu escala 1-10 es la de MovieLens (0.5-5 estrellas) por dos.
     resto.push(v.rating / 2 - tabla.mu - tabla.sesgo[i]);
+    nota.push(v.rating);
     titulo.push(v.titulo || v.d?.title || v.title || null);
   }
   if (fila.length < MIN_EN_TABLA) return null;
   let SW = 0, SWD = 0;
   for (let k = 0; k < fila.length; k++) { SW += peso[k]; SWD += peso[k] * resto[k]; }
-  return { fila, peso, resto, titulo, clave, SW, SWD, cache: new Map() };
+  return { fila, peso, resto, titulo, clave, nota, SW, SWD, cache: new Map() };
 }
 
 // Cuánto se aparta ESTA película de lo esperable para vos, según tus K más parecidas.
@@ -159,9 +160,13 @@ function calcular(pv, c, sin = -1) {
 // escala). El puntaje no lleva tu sesgo: es igual para todas las candidatas y, en el
 // dejar-una-afuera, cambiaría con la nota de la que se está prediciendo.
 function armar(pv, c, r) {
+  // A quién se nombra: las más parecidas de las que puntuó 8+. Antes ganaban las que
+  // le gustaron MÁS que al resto del mundo, que es lo que pesa en la cuenta pero no
+  // explica nada: de Rush nombraba En busca de la felicidad y Hackers, y dejaba afuera
+  // Contra lo imposible —la más parecida, otra de carreras, con su 8— porque a todo
+  // el mundo le gusta.
   const porQue = r.top
-    .filter(([, k]) => pv.resto[k] - r.bu > 0 && pv.titulo[k])
-    .sort((a, b) => b[0] * (pv.resto[b[1]] - r.bu) - a[0] * (pv.resto[a[1]] - r.bu))
+    .filter(([, k]) => pv.nota[k] >= 8 && pv.titulo[k])
     .slice(0, 2).map(([, k]) => pv.titulo[k]);
   return {
     puntaje: tabla.sesgo[c] + r.resid,
